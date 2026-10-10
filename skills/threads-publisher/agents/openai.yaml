@@ -1,0 +1,14 @@
+interface:
+  display_name: Threads Publisher
+  short_description: Publish verified blog Threads with safe ledger gates
+  default_prompt: Use $threads-publisher for the authorized publisher run and verify
+    all four parts.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

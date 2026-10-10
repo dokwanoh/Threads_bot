@@ -80,6 +80,19 @@ Read [RECOVERY.md](RECOVERY.md), [CHECKPOINT.md](CHECKPOINT.md), and
 The [integration contract](INTEGRATION.md) explains the new staged components and
 their deliberate limitations.
 
+## Skill source archive
+
+The `skills/` directory preserves reviewed, account-specific source copies of the
+installed [publisher](skills/threads-publisher/SKILL.md),
+[spreader](skills/threads-spreader/SKILL.md), and
+[commenter](skills/threads-commenter/SKILL.md) procedures, including their interface
+metadata, icons, and shared protocol. They refer to a separately verified deployed
+ledger and require current authorization on every run. Archiving them here does not
+install another copy, deploy this repository's staging code, or enable social writes.
+Operational records and installation identifiers are excluded.
+The protocols cite public snapshot `17669f5` (v3/v3_1); their v4 references describe
+separate staging work at authoring time, not code deployed by this archive.
+
 ## Repository hygiene
 
 Never commit runtime state, logs, credentials, tokens, receipts, conversation data,

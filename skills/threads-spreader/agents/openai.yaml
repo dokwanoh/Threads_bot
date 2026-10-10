@@ -1,0 +1,14 @@
+interface:
+  display_name: Threads Spreader
+  short_description: Vet Korean AI posts and verify five new native reposts
+  default_prompt: Use $threads-spreader for the authorized distribution run with shared
+    ledger gates.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

@@ -1,0 +1,14 @@
+interface:
+  display_name: Threads Commenter
+  short_description: Answer new replies in our existing Threads conversations
+  default_prompt: Use $threads-commenter to answer eligible new comments in existing
+    conversations.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
