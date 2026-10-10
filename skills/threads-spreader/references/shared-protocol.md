@@ -32,6 +32,14 @@ Acquire once for the exact current scheduled slot using a unique deterministic o
 
 Send a short start update only for a run actually starting: emoji, role, actual KST time, and scope. A blocked run gets a blocked/skip report instead of a false start or success.
 
+## Existing tabs and repeated read-only errors
+
+Use the existing Threads tab normally. Before obtaining a tab handle, confirm it exists in the current read-only tab inventory; never assume a prior run's tab ID is still valid. For a stale-handle or "Tab not found" error without denial, refresh the inventory read-only, reselect a suitable existing Threads tab, and verify the actual expected account before use. This is routine read-only revalidation, not the conditional new-tab diagnostic or an approval/recovery escalation. Do not repeatedly request a known-dead handle to manufacture an error count. If no suitable existing tab exists, report that actual state rather than guessing a tab or automatically creating one. If a bound preparation tab is missing, stop rather than rebind.
+
+Before draft preparation starts, only after three consecutive otherwise permitted read-only attempts produce the same observed error, allow one fresh Threads tab directly in the same approved dot cloud browser for diagnosis. Record each exact error text, read-only operation, observation time, and permitted-read status in the existing run report; do not infer a match from generic failure labels. A successful read resets the count; a different error breaks the identical-error sequence. Verify the expected logged-in account from the new tab's read-only UI before using it, and fix its actual tab ID for the rest of the run. Limit this diagnostic to one new tab per run.
+
+If approval is denied, login is required or fails, a security restriction appears, or an external write has an uncertain outcome, stop and report immediately. Never repeat a stop-required failure to reach three or open a new tab to retry or bypass it. Do not change browser, session, settings, or credentials, or replay a consumed intent or permit. Preserve `PREPARATION.md`'s exact payload, account, browser, and tab binding: once preparation starts, do not switch tabs or replay.
+
 ## One social write at a time
 
 1. Verify the latest authorization covers this exact action kind, recipient/target, and payload. Keep security/permission decisions separate from ledger permission.

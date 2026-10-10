@@ -40,3 +40,28 @@ A fresh final visual seal is required before the separate final publish intent,
 whose exclusive expiry must be checked again immediately before the browser call.
 An expired post-commit return leaves the intent durable but grants no dispatch.
 Exact denied-final-call bookkeeping stays separate from unknown draft recovery.
+
+## Existing-tab checks and a bounded read-only diagnostic
+
+After the unchanged status, checkpoint, STOP and exclusive-writer gates, use the
+existing Threads tab normally. Confirm it in the current read-only tab inventory;
+never assume a previous run's tab ID exists. For a stale handle or `Tab not found`
+without a denial, refresh that inventory, select a suitable existing Threads tab
+and verify the actual expected account. Do not repeatedly request a known-dead
+handle to manufacture failures. If no suitable tab exists, report that state;
+do not guess or automatically create one. A missing bound preparation tab stops
+the run and cannot be rebound.
+
+Before preparation starts, three consecutive otherwise permitted read-only
+attempts with the exact same observed error allow one fresh direct Threads tab
+for diagnosis in the same approved cloud browser, at most once per run. Retain
+the exact error text, operation, observation time and permitted-read status in
+the private run report. Success resets the count; a different error breaks the
+sequence. Verify the expected logged-in account read-only and pin the actual tab.
+
+Approval denial, required/failed login, security restriction or an uncertain
+external write requires an immediate stop and report. Never repeat such a failure
+to reach three, or open another tab to retry or bypass it. Do not change browser,
+session, settings or credentials, replay consumed intents/permits, or switch an
+already-started preparation's bound tab or payload. This procedure creates no
+automatic counter, browser operation or permission grant.
