@@ -25,11 +25,11 @@ The pin binds the exact incident/approval bytes; distinct pending-question and a
 
 ## Supported incident and retained evidence
 
-This helper supports only `legacy-current-ui-uncertainty-incident-v2`, protocol `legacy_current_ui_single_call_v1`: one authentic completed original `mcp__cua_repl__js` request that opened the menu, reached the exact `Unexpected repost menu; no repost selected` guard before final submit, and ended with that exception. The independent operator must verify that the guard's final-submit branch was not invoked and that no pending, outstanding, or later changing call exists. Both request and result retain the exact guard text. The tool-call ID is retained if available; otherwise an explicit missing-ID explanation is mandatory.
+The existing guard branch supports `legacy-current-ui-uncertainty-incident-v2`, protocol `legacy_current_ui_single_call_v1`: one authentic completed original `mcp__cua_repl__js` request that opened the menu, reached the exact `Unexpected repost menu; no repost selected` guard before final submit, and ended with that exception. The independent operator must verify that the guard's final-submit branch was not invoked and that no pending, outstanding, or later changing call exists. Both request and result retain the exact guard text. The tool-call ID is retained if available; otherwise an explicit missing-ID explanation is mandatory.
 
 It does not support future native-v4 incidents. Such incidents need a separately reviewed extension retaining the complete private witness, native request, attempt/result, review sources, and closure. The protocol gate rejects them. Relabeling a native-v4 incident as legacy is not permissible operator review.
 
-The incident contains two distinct, refreshed, read-only observations: target UI and limited account repost state. Both must remain `classification: unknown`, `coverage: partial`, with explicit limitations. The account and exact target must match the original incident; the two readback browser-instance and tab fields must both match the explicit replacement reconciliation provenance below. A virtualized/nonexhausted timeline and an aggregate count cannot become absence proof.
+The incident contains two distinct, refreshed, read-only observations: target UI and limited account repost state. Both must remain `classification: unknown`, `coverage: partial`, with explicit limitations. The account and exact target must match the original incident; the two readback browser-instance and tab fields must both match the explicit incident-specific reconciliation provenance below. A virtualized/nonexhausted timeline and an aggregate count cannot become absence proof.
 
 Exact request/result, operator attestation, limited read bytes, question, answer, and approval context are bounded embedded base64 sources with exact size/hash checks. Bundles reject undeclared/unreferenced sources and duplicate JSON keys. Incident, canonical incident bundle, approval, canonical approval bundle, and retained independent pin are saved as immutable blobs. Existing `source_sha256`/`proof_sha256` edges close the checkpoint evidence graph; no external source path is needed after finalization. Original intent, preflight record and raw proof, reservation/unknown audits, and STOP contents remain retained.
 
@@ -57,7 +57,7 @@ Preparation must exclude the entire quarantined candidate, including a condition
 
 ## v3 narrow replacement-tab and timestamp provenance
 
-This revision supports only the reviewed replacement-tab path. The helper API and unknown-outcome semantics are unchanged from its earlier staging revision. The incident schema is `legacy-current-ui-uncertainty-incident-v2` and its retained bundle schema is `retained-uncertain-quarantine-sources-v2`.
+The existing v3 guard branch supports only the reviewed replacement-tab path. The distinct locator-wait timeout branch below supports its own same-original-tab path. The helper API and unknown-outcome semantics are unchanged. The incident schema is `legacy-current-ui-uncertainty-incident-v2` and its retained bundle schema is `retained-uncertain-quarantine-sources-v2`.
 
 The original `binding.tab_id` and original request/result/attestation bytes are retained. They must not be rewritten to the reconciliation tab. `binding.browser_session` is a legacy field name: v3 uses an explicitly labelled observed CUA browser instance such as the synthetic label `browser-instance:1`, not an unavailable native browser-session ID. The actual ledger session remains `binding.session`.
 
@@ -107,3 +107,106 @@ an independently reviewed deployment; never reinitialize the existing database,
 rewrite old hashes, substitute Library identities, or bypass missing members.
 The SQL schema/version remains unchanged. New recovery archives must include
 `quarantine_extension.py`, `QUARANTINE.md`, and the portable `settings.py` as explicit required dependencies. Deployment-specific configuration must be supplied and reviewed separately; no operational configuration or approval producer is bundled.
+
+
+## Narrow completed locator-wait timeout before final click
+
+The reviewed source-only timeout extension preserves all existing guard/replacement behavior,
+outer schemas, immutable audit subtype, SQL schema, atomic transaction, permanent
+whole-post exclusion, source graph, clock checks, and checkpoint gate. It adds no
+new table, counter, permission, retry path, or dispatcher. This repository contains only implementation, documentation and synthetic tests.
+Publication does not deploy this extension or authorize live finalization. Any
+operational use requires separately reviewed exact source versions and the explicit
+authentic incident/approval gates below. No operational evidence is bundled.
+
+The second supported incident protocol is exactly:
+
+- `failed_call.incident_protocol: legacy_current_ui_locator_wait_timeout_before_final_click_v1`
+- `execution_stage: after_menu_open_locator_wait_before_final_submit`
+- `operator_review.trace_classification: authentic_completed_single_call_exact_locator_wait_timeout_before_final_click_no_pending_or_later_mutations`
+
+All common single-call, completed-error, final-submission-not-invoked,
+no-outstanding-call and no-subsequent-mutations conditions remain mandatory.
+This is a different failure from the legacy guard. It must never be relabeled
+as `Unexpected repost menu; no repost selected` or treated as an absence proof.
+
+`request_source` contains a serialization of the complete operator-attested
+original arguments object with exactly `code`, `title`, and `timeout_ms`. The
+code string must be retained unchanged. The title is exactly `Repost the
+verified LangGraph tutorial once`; timeout is the integer `20000`. This narrow
+branch matches the entire observed sequential code template, including the
+bound account and exact target URL, one menu-opener click, the ambiguous exact
+Korean-text selector, an awaited visible-state `choice.waitFor`, and the later
+final `choice.click`. It requires one consistent decimal deadline in seconds
+and milliseconds and completed-call outer bounds at or before that deadline.
+Prepended/appended calls, catches, alternate submissions, different requests,
+or altered deadlines/targets cannot use this branch. This shape check is
+syntactic eligibility only. It does not authenticate the source, prove generic
+JavaScript control flow, or replace independent review of the actual trace.
+
+`result_source` retains a serialization of the complete result object, exactly
+`content` plus `isError: true`, with its two original text blocks. The first
+block must begin exactly with:
+
+    Error: Playwright selector deadline exceeded
+    locator.waitFor(visible) timed out for selector internal:text="리포스트"s
+    Locator diagnostics:
+
+The prefix has one space after the last colon before its JSON diagnostics.
+The following complete JSON diagnostics must report action `waitFor`, kind
+`action_failed`, that exact selector, `matchCount: 3`, `visibleCount: 1`, and
+`truncated: false`, with the exact ordered hidden-title / visible-span /
+hidden-title matches and their retained attributes. Missing/altered/extra
+fields, generic timeouts, opener/final-click timeouts, successful tool results,
+extra result blocks, or a `nativeRepostSelectedOnce` marker anywhere in returned
+text are rejected. The second result block's browser-tab/URL header must match
+the original bound tab and target; its remaining original text stays retained.
+
+These retained argument/result serializations must be honestly identified as
+extractions from operator-attested originals. They are not original transport
+bytes, authenticated server transcripts, or reconstructed missing metadata.
+The separately pinned original operator source must attest the actual complete
+request and terminal result, final submission never invoked, no outstanding
+call, and no later changing call. Unexposed call IDs and native timestamps
+remain unavailable with explicit provenance. The original record and operator
+attestation must not be overwritten or embellished to satisfy the validator.
+Independent authentic-source review and its out-of-band TrustedReviewPin remain
+mandatory for every required claim and the exact pending approval exchange.
+
+This timeout branch requires `bundle.reconciliation` with the same exact field
+set as the legacy replacement provenance, but these distinct values:
+
+- `schema: same-original-tab-readback-provenance-v1`
+- original/current `browser_session` and `tab_id` are equal to the original binding
+- `classification: original_tab_current_same_tab_read_only`
+- `original_tab_state: current`
+- `original_tab_unavailable_reason: null`
+- `replacement_tab_state: null`
+- `mode: read_only`
+
+The explicit observed-browser identity basis, account, ledger session, exact
+target, and distinct independently pinned current operator source remain
+mandatory. Both fresh partial/unknown observations use that same original tab.
+A timeout with replacement-tab provenance and a legacy guard with same-tab
+provenance are both unsupported. No artificial tab closure or new tab is needed
+or permitted as a way to fit this contract. The current operator source must
+confirm terminal/no-outstanding/no-later-changing state and current original
+tab/account/session/target identity at review time. A previously retained open
+menu observation alone is not a fresh complete reconciliation.
+
+The original observed-outer-bounds timestamp contract and all freshness checks
+apply unchanged. Generic continuation and a different target's quarantine
+approval cannot authorize this incident. A reviewer must inspect the actual
+new target-specific pending question and owner answer, not accept relabeled
+old text. Hashes cannot authenticate a forged or unrelated approval. Outcome
+stays unknown, verified credit stays zero, retries stay prohibited, the entire
+canonical post stays excluded across all post-write kinds, and any unrelated
+future work remains blocked until the normal verified checkpoint ACK.
+
+`test_quarantine_locator_timeout.py` adds synthetic new-case positives and
+wrong-stage/final-click-timeout/diagnostic/request-shape/tab/identity/old-approval
+regressions. It reuses unchanged existing atomic/freshness/crash/restore and
+CLI/checkpoint tests against the new fixture. All original tests remain intact.
+The tests never read a live DB, token, browser, or real approval, and perform no
+network or social action. Run `python -m unittest discover -q` from this
+checkout root; a passing suite is not authorization.

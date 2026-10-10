@@ -28,6 +28,71 @@ BINDING_FIELDS = ('account', 'db_id', 'action_id', 'kind', 'target', 'payload_ha
                   'stop', 'expected_checkpoint_seq', 'browser_session', 'tab_id')
 
 
+# This distinct protocol accepts only the observed sequential request shape.
+# It is an eligibility/integrity check, NOT authentication or a generic JS proof.
+WAIT_PROTOCOL = 'legacy_current_ui_locator_wait_timeout_before_final_click_v1'
+WAIT_STAGE = 'after_menu_open_locator_wait_before_final_submit'
+WAIT_TRACE = 'authentic_completed_single_call_exact_locator_wait_timeout_before_final_click_no_pending_or_later_mutations'
+WAIT_REQUEST_TEMPLATE = 'if(Date.now()/1000>{deadline})throw new Error(\'Preflight expired; no menu opened\'); if(await tab.url()!==\'{target}\')throw new Error(\'Target changed; no menu opened\'); var prior=await tab.playwright.domSnapshot(); if(!prior.includes(\'/@{account}\')||!prior.includes(\'아직 답글이 없습니다\'))throw new Error(\'Account or conversation changed; no menu opened\'); var opener=tab.playwright.getByRole(\'button\',{name:\'리포스트\',exact:true}); if(await opener.count()!==1)throw new Error(\'Repost opener ambiguous; no menu opened\'); await opener.click({timeoutMs:3000}); var menuAx=await tab.getAXState({emit:false}); nodeRepl.write(menuAx); var menuState=await tab.playwright.domSnapshot(); nodeRepl.write(menuState); if(await tab.url()!==\'{target}\'||/리포스트 (삭제|취소)|리포스트했습니다|리포스트함/.test(menuState))throw new Error(\'Unexpected or already-reposted menu; no native repost selected\'); var choice=null; if(/- menuitem "리포스트"/.test(menuState)){choice=tab.playwright.getByRole(\'menuitem\',{name:\'리포스트\',exact:true});} else if(/- dialog/.test(menuState)&&/- button "리포스트"/.test(menuState)){choice=tab.playwright.getByRole(\'dialog\').getByRole(\'button\',{name:\'리포스트\',exact:true});} else if(/- generic: 리포스트\\s*(\\n|$)/.test(menuState)&&/인용/.test(menuState)){choice=tab.playwright.getByText(\'리포스트\',{exact:true});} if(!choice)throw new Error(\'No unambiguous observed native repost choice; no selection\'); await choice.waitFor({state:\'visible\',timeoutMs:Math.min(5000,Math.max(1,{deadline_ms}-Date.now()))}); if(await choice.count()!==1||!await choice.isVisible()||!await choice.isEnabled())throw new Error(\'Native repost choice unavailable; no selection\'); if(Date.now()>{deadline_ms})throw new Error(\'Permission expired; no selection\'); nodeRepl.write({nativeRepostSelectedOnce:true,target:await tab.url(),at:Math.floor(Date.now()/1000)}); await choice.click({timeoutMs:3000}); await tab.getAXState();'
+WAIT_ERROR_PREFIX = ('Error: Playwright selector deadline exceeded\n'
+                     'locator.waitFor(visible) timed out for selector internal:text="리포스트"s\n'
+                     'Locator diagnostics: ')
+WAIT_DIAGNOSTICS = {
+    'kind': 'action_failed', 'action': 'waitFor', 'locator': 'internal:text="리포스트"s',
+    'matchCount': 3, 'matches': [
+        {'ariaLabel': None, 'disabled': False, 'role': None, 'tag': 'title',
+         'text': '리포스트', 'type': None, 'visible': False},
+        {'ariaLabel': None, 'disabled': False, 'role': None, 'tag': 'span',
+         'text': '리포스트', 'type': None, 'visible': True},
+        {'ariaLabel': None, 'disabled': False, 'role': None, 'tag': 'title',
+         'text': '리포스트', 'type': None, 'visible': False}],
+    'visibleCount': 1, 'truncated': False}
+
+
+def validate_locator_wait_failure(request, result, binding, failed):
+    """Narrow retained-code/result check; independent authentic trace review is required.
+
+    Sources serialize the complete operator-attested original arguments and
+    retained result. These are not claimed original transport bytes. Do not
+    fabricate unexposed arguments, IDs, or native timestamps.
+    """
+    arguments = parse_json(request)
+    exact(arguments, ('code', 'title', 'timeout_ms'))
+    must(arguments['title'] == 'Repost the verified LangGraph tutorial once'
+         and type(arguments['timeout_ms']) is int and arguments['timeout_ms'] == 20000
+         and type(arguments['code']) is str, 'Exact operator-attested locator-wait arguments required')
+    code = arguments['code']
+    match = re.match(r'^if\(Date\.now\(\)/1000>([0-9]{10})\)', code)
+    must(match is not None, 'Exact locator-wait request prefix required')
+    deadline = match.group(1)
+    expected = (WAIT_REQUEST_TEMPLATE.replace('{deadline_ms}', str(int(deadline) * 1000))
+                .replace('{deadline}', deadline).replace('{target}', binding['target'])
+                .replace('{account}', binding['account']))
+    must(code == expected, 'Exact sequential locator-wait request shape/target/deadline required')
+    must(failed['request_started_at'] <= failed['completed_at'] <= int(deadline),
+         'Locator wait outer bounds must precede the retained request deadline')
+    retained = parse_json(result)
+    exact(retained, ('content', 'isError'))
+    must(retained['isError'] is True and type(retained['content']) is list
+         and len(retained['content']) == 2, 'Complete terminal locator-wait error result required')
+    for block in retained['content']:
+        exact(block, ('type', 'text'))
+        must(block['type'] == 'text' and type(block['text']) is str,
+             'Complete original text result blocks required')
+        must('nativeRepostSelectedOnce' not in block['text'],
+             'Final-selection marker excludes pre-final-click timeout recovery')
+    error, snapshot = (block['text'] for block in retained['content'])
+    must(error.startswith(WAIT_ERROR_PREFIX), 'Exact waitFor-visible terminal error required; click timeout is ineligible')
+    diagnostics = parse_json(error[len(WAIT_ERROR_PREFIX):])
+    must(canonical(diagnostics) == canonical(WAIT_DIAGNOSTICS),
+         'Exact nontruncated three-match waitFor diagnostics required')
+    first_line = snapshot.split('\n', 1)[0]
+    must(first_line.startswith('Browser tab: ' + binding['tab_id'] + ', Title: ')
+         and first_line.endswith(', URL: "' + binding['target'] + '".'),
+         'Retained failed-result tab/target identity mismatch')
+
+
+
 @dataclass(frozen=True)
 class TrustedReviewPin:
     schema: str
@@ -187,13 +252,15 @@ def validate_bundles(incident, approval, ih, ah, pin):
     exact(failed, ('incident_protocol', 'completed_call_count', 'tool_name', 'original_context_reference', 'tool_call_id', 'missing_call_id_reason',
                    'request_source', 'result_source', 'request_started_at', 'completed_at', 'timestamp_basis', 'timestamp_provenance', 'completion',
                    'execution_stage', 'final_submission', 'subsequent_mutations', 'outstanding_call'))
-    must(failed['incident_protocol'] == 'legacy_current_ui_single_call_v1',
+    wait_timeout = failed['incident_protocol'] == WAIT_PROTOCOL
+    must(failed['incident_protocol'] in ('legacy_current_ui_single_call_v1', WAIT_PROTOCOL),
          'Native-v4/future incidents require a separately reviewed complete witness/request/attempt closure')
     must(type(failed['completed_call_count']) is int and failed['completed_call_count'] == 1,
          'Exactly one authentic completed call required')
     must(failed['tool_name'] == 'mcp__cua_repl__js', 'Unexpected incident tool')
     must(failed['original_context_reference'] == pin.failed_context_reference, 'Unreviewed failed-call context')
-    must(failed['completion'] == 'completed_error' and failed['execution_stage'] == 'after_menu_open_before_final_submit'
+    must(failed['completion'] == 'completed_error'
+         and failed['execution_stage'] == (WAIT_STAGE if wait_timeout else 'after_menu_open_before_final_submit')
          and failed['final_submission'] == 'not_invoked' and failed['subsequent_mutations'] == 'none'
          and failed['outstanding_call'] == 'none', 'Call not conclusively completed before final submission')
     must(failed['tool_call_id'] is None or type(failed['tool_call_id']) is str and failed['tool_call_id'], 'Invalid tool-call ID')
@@ -203,9 +270,12 @@ def validate_bundles(incident, approval, ih, ah, pin):
         must(failed['missing_call_id_reason'] is None, 'Unexpected missing-ID reason')
     for field, expected in (('request_source', pin.failed_request_sha256), ('result_source', pin.failed_result_sha256)):
         must(failed[field] in src and digest(src[failed[field]]) == expected, 'Unreviewed original failed-call bytes')
-    must(b'Unexpected repost menu; no repost selected' in src[failed['result_source']], 'Exact legacy UI uncertainty error missing')
-    must(b'Unexpected repost menu; no repost selected' in src[failed['request_source']],
-         'Exact guard branch must be retained in the original request')
+    if wait_timeout:
+        validate_locator_wait_failure(src[failed['request_source']], src[failed['result_source']], incident['binding'], failed)
+    else:
+        must(b'Unexpected repost menu; no repost selected' in src[failed['result_source']], 'Exact legacy UI uncertainty error missing')
+        must(b'Unexpected repost menu; no repost selected' in src[failed['request_source']],
+             'Exact guard branch must be retained in the original request')
     must(failed['timestamp_basis'] == 'observed_outer_bounds', 'Honest observed outer timestamp bounds required')
     text(failed['timestamp_provenance'], 'original timestamp boundary provenance')
     # These legacy field names mean conservative lower/upper observed bounds,
@@ -216,7 +286,8 @@ def validate_bundles(incident, approval, ih, ah, pin):
     exact(operator, ('reviewer', 'reference', 'reviewed_at', 'source', 'classification', 'trace_classification'))
     must(operator['reviewer'] == pin.reviewer and operator['reference'] == pin.review_context_reference,
          'Trusted operator review identity/context mismatch')
-    must(operator['classification'] == CLASSIFICATION and operator['trace_classification'] == 'authentic_completed_single_call_exact_guard_before_final_submission_no_pending_or_later_mutations',
+    expected_trace = WAIT_TRACE if wait_timeout else 'authentic_completed_single_call_exact_guard_before_final_submission_no_pending_or_later_mutations'
+    must(operator['classification'] == CLASSIFICATION and operator['trace_classification'] == expected_trace,
          'Explicit independent source/trace classification required')
     must(operator['source'] in src and digest(src[operator['source']]) == pin.operator_attestation_sha256,
          'Original operator attestation missing or not independently pinned')
@@ -228,8 +299,8 @@ def validate_bundles(incident, approval, ih, ah, pin):
                            'browser_session', 'tab_id', 'browser_identity_basis', 'account', 'ledger_session', 'target',
                            'classification', 'original_tab_state', 'original_tab_unavailable_reason',
                            'replacement_tab_state', 'mode', 'operator_source'))
-    must(reconciliation['schema'] == 'replacement-tab-readback-provenance-v1',
-         'Explicit replacement-tab provenance required')
+    expected_provenance = 'same-original-tab-readback-provenance-v1' if wait_timeout else 'replacement-tab-readback-provenance-v1'
+    must(reconciliation['schema'] == expected_provenance, 'Exact incident-specific readback provenance required')
     must(reconciliation['original_browser_session'] == incident['binding']['browser_session']
          and reconciliation['original_tab_id'] == incident['binding']['tab_id'],
          'Replacement provenance must preserve the original incident browser/tab')
@@ -240,13 +311,21 @@ def validate_bundles(incident, approval, ih, ah, pin):
     for field, binding_field in (('account', 'account'), ('ledger_session', 'session'), ('target', 'target')):
         must(reconciliation[field] == incident['binding'][binding_field],
              'Replacement provenance account/ledger-session/target mismatch')
-    text(reconciliation['original_tab_unavailable_reason'], 'honest original-tab unavailability provenance')
-    text(reconciliation['tab_id'], 'actual replacement readback tab')
-    must(reconciliation['tab_id'] != reconciliation['original_tab_id']
-         and reconciliation['original_tab_state'] == 'not_listed_after_cleanup'
-         and reconciliation['classification'] == 'original_tab_unavailable_replacement_read_only'
-         and reconciliation['replacement_tab_state'] == 'current'
-         and reconciliation['mode'] == 'read_only', 'Unavailable original/current read-only replacement tabs required')
+    if wait_timeout:
+        must(reconciliation['tab_id'] == reconciliation['original_tab_id']
+             and reconciliation['original_tab_state'] == 'current'
+             and reconciliation['classification'] == 'original_tab_current_same_tab_read_only'
+             and reconciliation['original_tab_unavailable_reason'] is None
+             and reconciliation['replacement_tab_state'] is None
+             and reconciliation['mode'] == 'read_only', 'Current original read-only tab required; no replacement or artificial closure')
+    else:
+        text(reconciliation['original_tab_unavailable_reason'], 'honest original-tab unavailability provenance')
+        text(reconciliation['tab_id'], 'actual replacement readback tab')
+        must(reconciliation['tab_id'] != reconciliation['original_tab_id']
+             and reconciliation['original_tab_state'] == 'not_listed_after_cleanup'
+             and reconciliation['classification'] == 'original_tab_unavailable_replacement_read_only'
+             and reconciliation['replacement_tab_state'] == 'current'
+             and reconciliation['mode'] == 'read_only', 'Unavailable original/current read-only replacement tabs required')
     provenance_source = reconciliation['operator_source']
     must(provenance_source in src and provenance_source not in
          (operator['source'], failed['request_source'], failed['result_source'])

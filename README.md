@@ -14,6 +14,8 @@ operational receipts, or user conversation data.
 - The reviewed quarantine helper can terminate an exactly approved legacy uncertain
   attempt while retaining its unknown outcome and permanently blocking that post.
   It requires independent authentic-source review and a new verified checkpoint.
+  The source-only extension also validates one narrowly defined completed
+  locator-wait timeout subtype; publication does not deploy or execute recovery.
 - The publisher preparation helper binds five one-use draft operations and a
   separate final visual seal; every new publish intent requires that preparation.
 - The companion role queue is staging-only. Publisher, spreader, and commenter
@@ -108,3 +110,10 @@ Never commit runtime state, logs, credentials, tokens, receipts, conversation da
 or backups. Ignore rules are a guardrail, not a secret scanner. Review the staged
 file list and diff before every commit. Keep source publication separate from
 deployment, STOP reconciliation, and external actions.
+
+## Future native Repost selector
+
+[REPOST_SELECTOR.md](REPOST_SELECTOR.md) documents the minimal exact-role/name
+selection and bounded readiness order for separately authorized future work. Its
+inline synthetic regression is not a browser test, a recovery approval, or a retry
+route for a held intent. The historical timeout template remains evidence-only.

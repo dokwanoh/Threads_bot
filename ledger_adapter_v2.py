@@ -51,8 +51,8 @@ SOURCE_SHA256 = {
     'ledger.py': '40dc19b56345d7bb271613feb75ae63569d26ab6a69c47c1a0a966a54ae967cd',
     'checkpoint.py': '99acd1537622d777550de8804b66468fea417499fcecea3a5084455a196194d7',
     'denial_extension.py': '6cb41cc6d832cd9d656c4a948babd7e2613b98603c11cf90d6481685c65c427d',
-    'package_recovery.py': '9a9dd833beb507cd79e1fed1c81de3ff1e5d213c15168649cb7595a8c636eb2d',
-    'quarantine_extension.py': 'a43fd424a05878ac1f8f9d77af6f51ef353047dca6022915cdf0ecb1a583d67e',
+    'package_recovery.py': '3bc8d841a05e6b2632c5d50e31347b4676eb6c27c758f1232996533b163fbfa8',
+    'quarantine_extension.py': '841311a32ae4e27c2b6c83ada3cd238b539d9235400d26bb8bf0b11b2a0fe52f',
     'publisher_preparation.py': '68a3fc5b4cdd3b95ff93652761365ba477b6e73bf50e1a7dc9297f1effb4ba68',
     'settings.py': '1c501fe96394b468b7d0038e44195f0ebd6dbf26aaa6ea44c168fa061127d058',
 }
