@@ -9,6 +9,10 @@
 - One-use mutation permits, deadline checks, lost-response and denial blocking
 - Immutable audit and evidence, no implicit database creation or owner takeover
 - Paired archive identity/hash/version checks before queue completion
+- Restricted source-pinned staging ledger adapters and offline queue snapshots
+- Exact role/action grants with final-boundary expiry and clock-rollback checks
+- Self-contained four-part publisher proof with retained image/observation bytes
+- Goal-aware repost planning and observe-only native handoff contracts
 
 ## Required before any production claim
 
@@ -19,11 +23,12 @@
 3. Observe real worker, browser-instance, tab, and logged-in account identities.
 4. Validate each actual schedule/time zone. The staged fixed-interval model cannot
    silently substitute for active-hours or irregular scheduling.
-5. Implement independently reviewed browser, ledger, authorization, and tool-result
-   adapters. Defaults must stay unavailable until an explicit integration selection.
+5. Implement and review the actual native mutation handler, production ledger
+   selection, durable authorization/replay service, and supported browser evidence
+   collection. Staging adapters and synthetic mutation contracts grant no permission.
    Keep tokens out of shell arguments/logs and use the supported browser route.
-6. Implement a consistent token-free companion snapshot, exact Library round trip,
-   paired restore review, and orphaned-writer/crash reconciliation.
+6. Validate the staged companion snapshot through an actual exact Library round
+   trip and paired restore, plus orphaned-writer/crash reconciliation.
 7. Verify a no-social-write end-to-end rehearsal and exact checkpoint round trip.
 8. Obtain deployment authorization and quiesce old writers before promotion.
 

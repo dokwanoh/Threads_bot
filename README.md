@@ -13,17 +13,18 @@ operational receipts, or user conversation data.
   execution. A separate exact-scope approval is required for bookkeeping closure.
 - The companion role queue is staging-only. Publisher, spreader, and commenter
   prepare independently while a serial coordinator gates writes and checkpoints.
-- Browser, authorization, backup transport, and production adapter implementations
-  are unavailable by default. Synthetic tests do not demonstrate live isolation or
-  production readiness.
+- Reviewed staging integration includes a restricted in-process ledger adapter,
+  exact role authorization, a file-backed read bridge, retained publisher evidence,
+  and queue snapshot checks. Real social-mutation and production transports remain
+  unavailable. Synthetic tests do not demonstrate production readiness.
 - Publishing this source does not deploy it, alter any live STOP, authorize a social
   action, or permit retrying a denied or uncertain action.
 
 ## Run the tests
 
-Python 3.12 with SQLite 3.37 or later is recommended. The project uses only the Python
-standard library. From a fresh checkout, without deployment-specific environment
-variables:
+Tests are verified on Linux with Python 3.12 and SQLite 3.37 or later. The project
+uses only the Python standard library, including POSIX filesystem and locking APIs.
+From a fresh checkout, without deployment-specific environment variables:
 
 ```sh
 python3 -B -m unittest discover -v
@@ -64,11 +65,20 @@ authorized adapters; setting variables alone does not enable one.
 - `dispatch_gate.py`: complete-response validation and one-use dispatch gates
 - `coordinator.py`: serial coordination with disabled default adapters
 - `checkpoint_pair.py`: paired archive/receipt binding checks
+- `ledger_adapter.py`, `ledger_adapter_v2.py`, `queue_checkpoint.py`: source-pinned
+  staging adapters and offline queue archives
+- `goal_coordinator.py`, `role_authorization.py`, `publisher_safety.py`: guarded
+  role goals, exact finite authorizations, and self-contained publish evidence
+- `tool_bridge.py`, `native_handler.py`, `native_read_cli.py`, `read_trial_driver.py`:
+  one-use read-only handoff; actual browser tooling is supplied separately
+- `integration_paths.py`: common staging-only integration paths
 - `test_*.py`: synthetic regression and adversarial tests
 
 Read [RECOVERY.md](RECOVERY.md), [CHECKPOINT.md](CHECKPOINT.md), and
 [FAIL_FAST.md](FAIL_FAST.md) before changing safety-critical behavior. The
 [staging checklist](STAGING.md) describes the remaining integration gates.
+The [integration contract](INTEGRATION.md) explains the new staged components and
+their deliberate limitations.
 
 ## Repository hygiene
 
