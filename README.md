@@ -14,6 +14,8 @@ operational receipts, or user conversation data.
 - The reviewed quarantine helper can terminate an exactly approved legacy uncertain
   attempt while retaining its unknown outcome and permanently blocking that post.
   It requires independent authentic-source review and a new verified checkpoint.
+- The publisher preparation helper binds five one-use draft operations and a
+  separate final visual seal; every new publish intent requires that preparation.
 - The companion role queue is staging-only. Publisher, spreader, and commenter
   prepare independently while a serial coordinator gates writes and checkpoints.
 - Reviewed staging integration includes a restricted in-process ledger adapter,
@@ -63,6 +65,7 @@ authorized adapters; setting variables alone does not enable one.
 - `ledger.py`: strict SQLite ledger and JSON CLI
 - `denial_extension.py`: narrowly bound pre-execution denial bookkeeping
 - `quarantine_extension.py`: exact-scope uncertainty closure and permanent post exclusion
+- `publisher_preparation.py`: bounded draft permits, retained evidence and final seal
 - `package_recovery.py`, `checkpoint.py`: local allowlisted archive creation and
   verification; neither uploads data
 - `queue_core.py`: staging queue, pinned identities, immutable role jobs and slots
@@ -79,7 +82,8 @@ authorized adapters; setting variables alone does not enable one.
 - `test_*.py`: synthetic regression and adversarial tests
 
 Read [RECOVERY.md](RECOVERY.md), [CHECKPOINT.md](CHECKPOINT.md), and
-[FAIL_FAST.md](FAIL_FAST.md), and [QUARANTINE.md](QUARANTINE.md) before changing safety-critical behavior. The
+[FAIL_FAST.md](FAIL_FAST.md), [QUARANTINE.md](QUARANTINE.md), and
+[PREPARATION.md](PREPARATION.md) before changing safety-critical behavior. The
 [staging checklist](STAGING.md) describes the remaining integration gates.
 The [integration contract](INTEGRATION.md) explains the new staged components and
 their deliberate limitations.
@@ -94,8 +98,9 @@ metadata, icons, and shared protocol. They refer to a separately verified deploy
 ledger and require current authorization on every run. Archiving them here does not
 install another copy, deploy this repository's staging code, or enable social writes.
 Operational records and installation identifiers are excluded.
-The protocols cite public snapshot `17669f5` (v3/v3_1); their v4 references describe
-separate staging work at authoring time, not code deployed by this archive.
+The protocols require the current reviewed deployed contract, including bounded
+publisher preparation and quarantine exclusions. No public commit by itself
+establishes deployment of the separate staging role integration.
 
 ## Repository hygiene
 

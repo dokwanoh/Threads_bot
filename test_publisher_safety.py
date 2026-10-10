@@ -168,56 +168,65 @@ class CoordinatorPublisherTests(unittest.TestCase):
         status=successful(self.f.a.execute('status'))
         publish=[a for a in status['actions'] if a['kind']=='publish']
         self.assertEqual(len(publish),1)
-        self.assertEqual(publish[0]['state'],'submitted_unverified')
-        self.assertEqual(len(self.f.browser.mutations),1)
+        # The older v3 route cannot register the new mandatory preparation.
+        self.assertEqual(publish[0]['state'],'reserved')
+        self.assertIsNone(publish[0]['intent_id'])
+        self.assertEqual(len(self.f.browser.mutations),0)
+        self.assertFalse(status['publisher_preparations'])
+        # Keep the independent four-part readback rule even though this route
+        # is now blocked earlier, before any synthetic browser mutation.
+        root_only=copy.deepcopy(helper.proof);root_only['parts']=root_only['parts'][:1]
+        with self.assertRaises(GateBlocked):helper.check(root_only,receipts=helper.urls[:1])
         self.assertIsNotNone(status['writer'])
 
-    def test_real_ledger_checkpoint_retains_sources_and_image_without_runtime_files(self):
-        from test_coordinator import reply
-        import ledger_adapter_v2
-        f=self.f
+    def test_checkpoint_retains_historical_publisher_proof_without_runtime_files(self):
+        # The old v3 publisher cannot create a new prepared intent. Preserve the
+        # proof/archive regression through the actual historical recovery API,
+        # without a fake preparation, direct SQL state edit or relaxed gate.
+        from test_independent import Fixture
+        import checkpoint
+        f=Fixture();self.addCleanup(f.close)
         helper=PublisherTests();helper.setUp();self.addCleanup(helper.doCleanups)
-        # Ledger adapter accepts evidence paths only inside its synthetic fixture.
-        image=f.f.root/'original.png';image.write_bytes(helper.image.read_bytes())
-        payload=copy.deepcopy(helper.payload);payload['root_image_path']=str(image)
-        self.prepare(payload)
-        class BundleBrowser(FakeBrowser):
-            def readback(self,action,binding,intent_id):
-                value=successful(super().readback(action,binding,intent_id))
-                urls=[f'https://threads.com/@{binding["account"]}/post/Retained{i}' for i in range(4)]
-                source=self.folder/'bundle-observation.txt'
-                source.write_text('RETAINED_SYNTHETIC_OBSERVATION\n'+'\n'.join(urls+[payload['root']]+payload['replies']+['Retained card']))
-                proof=copy.deepcopy(helper.proof)
-                proof.update(account=binding['account'],payload_hash=action['payload_hash'],intent_id=intent_id,observed_at=self.clock())
-                for i,part in enumerate(proof['parts']):
-                    part.update(url=urls[i],account=binding['account'],parent_url=None if i==0 else urls[i-1])
-                proof['image'].update(part_url=urls[0])
-                proof['preview'].update(part_url=urls[1],card_text='Retained card')
-                proof['source_records'][0].update(path=str(source),sha256=hashlib.sha256(source.read_bytes()).hexdigest())
-                sealed=p.make_self_contained_proof(proof,action)
-                path=Path(value['evidence']['proof_file']);path.write_text(canonical(sealed))
-                value['evidence'].update(proof_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),receipt_urls=urls)
-                Path(value['evidence_path']).write_text(canonical(value['evidence']))
-                self.saved=(action,binding,intent_id,urls,self.clock(),str(source),str(path))
-                return reply(value)
-        browser=BundleBrowser(f.f.root,lambda:f.f.now)
-        coordinator=p.guarded_coordinator(f.q,f.a.identity,clock=lambda:f.f.now,
-            ledger=f.a,browser=browser,authorization=FakeAuthorization())
-        self.assertEqual(coordinator.run_once().state,'needs_checkpoint')
-        action,binding,intent,urls,at,source,proofpath=browser.saved
-        archive=f.f.root/'retained-publisher.zip'
-        f.f.cp.package(f.f.path,archive,source_dir=ledger_adapter_v2.FIXTURE_SOURCE_ROOT,account=f.a.identity.account)
-        Path(source).unlink();image.unlink();Path(proofpath).unlink()
+        binding={**helper.binding,'account':f.l.account}
+        urls=[f'https://threads.com/@{f.l.account}/post/Retained{i}' for i in range(4)]
+        source=helper.root/'bundle-observation.txt'
+        source.write_text('RETAINED_SYNTHETIC_OBSERVATION\n'+'\n'.join(
+            urls+[helper.payload['root']]+helper.payload['replies']+['Retained card']))
+        proof=copy.deepcopy(helper.proof)
+        proof.update(account=f.l.account,observed_at=f.now)
+        for i,part in enumerate(proof['parts']):
+            part.update(url=urls[i],account=f.l.account,parent_url=None if i==0 else urls[i-1])
+        proof['image'].update(part_url=urls[0])
+        proof['preview'].update(part_url=urls[1],card_text='Retained card')
+        proof['source_records'][0].update(path=str(source),sha256=hashlib.sha256(source.read_bytes()).hexdigest())
+        sealed=p.make_self_contained_proof(proof,helper.action)
+        p.validate_retained_bundle(sealed,helper.action,binding,helper.intent,receipts=urls,now=f.now)
+        proofpath=helper.root/'historical-bundle-proof.json';proofpath.write_text(canonical(sealed))
+        f.l.import_observation(*f.record({'schema':'public-action-observation-v1',
+            'account':f.l.account,'kind':'publish','target':helper.target,
+            'classification':'historical_observed','observed_at':f.now,
+            'reference':'Synthetic historical four-part observation only',
+            'source_file':str(proofpath),'source_sha256':hashlib.sha256(proofpath.read_bytes()).hexdigest(),
+            'payload':helper.payload,'receipt_urls':urls}))
+        auth=f.active();f.l.release(auth['owner'],auth['token'])
+        archive=f.root/'retained-publisher.zip'
+        checkpoint.package(f.path,archive,source_dir=Path(__file__).parent,account=f.l.account)
+        source.unlink();helper.image.unlink();proofpath.unlink()
         with zipfile.ZipFile(archive) as z:
-            sealed=None
+            retained=None
             for name in z.namelist():
                 if not name.startswith('evidence/'):continue
                 try:record=json.loads(z.read(name))
                 except (ValueError,UnicodeDecodeError):continue
-                if type(record) is dict and record.get('schema')=='publisher-bundle-readback-v2':sealed=record
-            self.assertIsNotNone(sealed)
-            self.assertIn(b'RETAINED_SYNTHETIC_OBSERVATION',base64.b64decode(sealed['source_records'][0]['embedded']['base64']))
-            self.assertEqual(hashlib.sha256(base64.b64decode(sealed['original_image']['base64'])).hexdigest(),payload['image_sha256'])
-            p.validate_retained_bundle(sealed,action,binding,intent,receipts=urls,now=at)
+                if type(record) is dict and record.get('schema')=='publisher-bundle-readback-v2':retained=record
+            self.assertIsNotNone(retained)
+            self.assertIn(b'RETAINED_SYNTHETIC_OBSERVATION',base64.b64decode(retained['source_records'][0]['embedded']['base64']))
+            self.assertEqual(hashlib.sha256(base64.b64decode(retained['original_image']['base64'])).hexdigest(),helper.payload['image_sha256'])
+            p.validate_retained_bundle(retained,helper.action,binding,helper.intent,receipts=urls,now=f.now)
+        state=f.l.status()
+        historical=[a for a in state['actions'] if a['kind']=='publish']
+        self.assertEqual(historical[0]['state'],'historical_observed')
+        self.assertIsNone(historical[0]['intent_id'])
+        self.assertFalse(state['publisher_preparations'])
 
 if __name__=='__main__':unittest.main()

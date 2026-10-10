@@ -23,7 +23,7 @@ Changes to pinned source require explicit review and literal pin updates; never
 compute a new acceptable pin automatically at runtime.
 
 The adapters in this public revision explicitly pin the quarantine-aware portable
-ledger, checkpoint, packager, and quarantine helper. They load the helper from
+ledger, checkpoint, packager, quarantine and publisher-preparation helpers. They load these helpers and the denial validator from
 those checked bytes and retain the same restricted command surface. The unchanged
 queue/core source pins remain separate. Earlier v4 work is not part of this public
 integration and cannot accept this baseline without its own explicit pin update,
@@ -76,3 +76,20 @@ Keep all bindings, tickets, observations, approval inputs, runtime databases, lo
 receipts, and backups outside version control. Source tests contain synthetic data
 only. Real observe-only trials do not prove production mutation safety or authorize
 deployment, live action retries, or STOP reconciliation.
+
+## Mandatory preparation and the older staged publisher
+
+All new ledger publish intents require the bounded preparation source contract.
+The existing v3 staging adapter deliberately exposes none of its creation, step,
+completion, unknown-resolution or final-seal commands. Its older publisher bundle
+payload is also distinct from the new preparation payload. Thus that route stops
+at the reserved action before a final intent or browser mutation; do not silently
+translate payloads, fabricate a seal, or add commands to get around this boundary.
+A supported end-to-end publisher integration would require a separate reviewed
+change and authorization. No such route, v4 transport or deployment is added here.
+
+The existing four-part proof validator remains available for read-only historical
+evidence validation. Tests retain its strict root/reply/image/preview checks and
+archive-after-source-deletion coverage using the explicit historical recovery API.
+New preparation tests independently cover the supported five-step helper, final
+intent, four receipts, denial closure, and restored archive ACK.

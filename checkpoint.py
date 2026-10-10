@@ -15,6 +15,8 @@ def runtime_manifest(db):
     values=dict(db.execute('SELECT key,value FROM meta'))
     from quarantine_extension import quarantine_records
     quarantines=quarantine_records(db,values['account'])
+    from publisher_preparation import preparation_records,preparation_evidence_hashes
+    preparations=preparation_records(db,values['account'])
     # ACK bookkeeping does not alter external-action safe-state hash. Its bytes
     # remain in SQLite for audit, but cannot create an endless checkpoint loop.
     excluded=('reconstruction_sealed','verified_backup_activation','checkpoint_verified')
@@ -23,6 +25,7 @@ def runtime_manifest(db):
     actions=[dict(r) for r in db.execute('SELECT * FROM actions ORDER BY id')]
     evidence={values['review_hash']}|{h for o in observations for h in (o['record_hash'],o['source_hash'])}
     evidence|={a['proof_hash'] for a in actions if a['proof_hash']}
+    evidence|=set(preparation_evidence_hashes(db,values['account']))
     for a in audit:
         d=json.loads(a['details'])
         evidence|={d[k] for k in ('preflight_hash','proof_hash') if k in d}
@@ -38,7 +41,7 @@ def runtime_manifest(db):
             for k in ('source_sha256','proof_sha256'):
                 if k in o and o[k] not in evidence:evidence.add(o[k]);pending.append(o[k])
     return {'schema':'threads-runtime-safe-state-v1','account':values['account'],'db_id':values['db_id'],'baseline_hash':values['baseline_hash'],'checkpoint_seq':int(values['checkpoint_seq']),
-        'actions':actions,'quarantines':quarantines,'observations':observations,'receipts':[dict(r) for r in db.execute('SELECT * FROM receipts ORDER BY receipt_key')],
+        'actions':actions,'quarantines':quarantines,'publisher_preparations':preparations,'observations':observations,'receipts':[dict(r) for r in db.execute('SELECT * FROM receipts ORDER BY receipt_key')],
         'runs':[dict(r) for r in db.execute('SELECT * FROM runs ORDER BY owner')],'stops':[dict(r) for r in db.execute('SELECT * FROM stops ORDER BY account')],
         'audit':audit,'evidence_hashes':sorted(evidence)}
 
@@ -70,7 +73,7 @@ def package(db_path,output,source_dir=None,account=ACCOUNT):
                 for bh,b in blobs:must(digest(b)==bh,'Corrupt archived blob')
             finally:dest.close()
             members={'runtime.sqlite':snap.read_bytes(),'RUNTIME_MANIFEST.json':canonical(sm).encode()}
-            for name in ('ledger.py','checkpoint.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','package_recovery.py','settings.py','RECOVERY.md','FAIL_FAST.md','CHECKPOINT.md'):
+            for name in ('ledger.py','checkpoint.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','publisher_preparation.py','PREPARATION.md','package_recovery.py','settings.py','RECOVERY.md','FAIL_FAST.md','CHECKPOINT.md'):
                 data,_=file_bytes(source_dir/name);members[name]=data
             for bh,b in blobs:members['evidence/'+bh+'.bin']=b
             pm={'schema':'threads-ledger-checkpoint-v1','account':account,'db_id':sv['db_id'],'baseline_hash':sv['baseline_hash'],'checkpoint_seq':int(sv['checkpoint_seq']),'checkpoint_hash':sh,'members':{n:digest(b) for n,b in sorted(members.items())}}
@@ -102,7 +105,7 @@ def acknowledge(l,receipt_path,sha256):
         must(pm['schema']=='threads-ledger-checkpoint-v1','Wrong checkpoint package')
         for k in ('account','db_id','baseline_hash','checkpoint_seq','checkpoint_hash'):must(pm[k]==r[k],'Checkpoint archive binding mismatch')
         must(type(pm['members']) is dict and set(z.namelist())==set(pm['members'])|{'PACKAGE_MANIFEST.json'},'Undeclared checkpoint member')
-        must({'runtime.sqlite','ledger.py','checkpoint.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','settings.py','CHECKPOINT.md'}<=set(pm['members']),'Required checkpoint members missing')
+        must({'runtime.sqlite','ledger.py','checkpoint.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','publisher_preparation.py','PREPARATION.md','settings.py','CHECKPOINT.md'}<=set(pm['members']),'Required checkpoint members missing')
         total=0
         for name,h in pm['members'].items():
             must(not name.startswith('/') and '..' not in Path(name).parts,'Unsafe checkpoint path')

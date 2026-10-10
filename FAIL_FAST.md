@@ -32,3 +32,11 @@ all post-write kinds. Corrupt or missing quarantine evidence blocks acquisition,
 status, and checkpoints. Fresh unrelated work remains gated by the normal verified
 checkpoint. Read [QUARANTINE.md](QUARANTINE.md) for the exact trust boundary; a
 partial readback or a rehashed approval object cannot authenticate an approval.
+
+A publisher draft requires exactly five ordered, one-use preparation permits. Each
+authorizes only its bound draft operation, never final submission. A lost/unknown
+permit or result blocks later changing work; read-only inspection is not completion.
+A fresh final visual seal is required before the separate final publish intent,
+whose exclusive expiry must be checked again immediately before the browser call.
+An expired post-commit return leaves the intent durable but grants no dispatch.
+Exact denied-final-call bookkeeping stays separate from unknown draft recovery.

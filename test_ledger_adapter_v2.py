@@ -78,6 +78,8 @@ class SyntheticFixture:
                    'denial_extension.py': (FIXTURE_SOURCE_ROOT / 'denial_extension.py').read_bytes(),
                    'quarantine_extension.py': (FIXTURE_SOURCE_ROOT / 'quarantine_extension.py').read_bytes(),
                    'QUARANTINE.md': b'Disposable synthetic quarantine contract. Never use operationally.',
+                   'publisher_preparation.py': (FIXTURE_SOURCE_ROOT / 'publisher_preparation.py').read_bytes(),
+                   'PREPARATION.md': b'Disposable synthetic preparation contract.',
                    'settings.py': (FIXTURE_SOURCE_ROOT / 'settings.py').read_bytes(),
                    'RECOVERY.md': b'Disposable synthetic recovery fixture. Never use operationally.'}
         manifest = dict(schema='threads-ledger-backup-v1', account=ACCOUNT,
@@ -281,6 +283,8 @@ class AdapterTests(unittest.TestCase):
         for command in ('init-recovery', 'activate', 'seal', 'manifest', 'hash-file',
                         'record-denied-before-dispatch', 'finalize-denied-run',
                         'finalize-uncertain-quarantine', 'quarantines',
+                        'create-publisher-preparation', 'begin-publisher-step', 'complete-publisher-step',
+                        'seal-publisher-preparation', 'unknown-publisher-step',
                         'acknowledge-reconciliation', '__getattribute__', 'close', 'begin_write'):
             self.fail(command)
         self.fail('status', db=str(self.f.path))
@@ -476,6 +480,71 @@ class AdapterTests(unittest.TestCase):
         fake_quarantine.quarantine_records.assert_not_called()
         fake_quarantine.ensure_not_quarantined.assert_not_called()
 
+    def test_preparation_and_denial_load_from_pinned_bytes(self):
+        from test_publisher_preparation import Fixture
+        fixture=Fixture();self.addCleanup(fixture.close)
+        fixture.prepare_all()
+        fixture.l.begin_write(fixture.owner,fixture.token,fixture.action,fixture.evidence())
+        fixture.record_denial()
+        fake_prep=types.SimpleNamespace(preparation_records=mock.Mock(return_value=[]))
+        fake_denial=types.SimpleNamespace(bind=mock.Mock(),eligible_history=mock.Mock())
+        fake_quarantine=object()
+        with mock.patch.dict(sys.modules,{'publisher_preparation':fake_prep,
+                'denial_extension':fake_denial,'quarantine_extension':fake_quarantine}):
+            ledger,checkpoint=adapter_module._load_pinned_sources()
+            importer=ledger.__dict__['__builtins__']['__import__']
+            preparation=importer('publisher_preparation');denial=importer('denial_extension')
+            quarantine=importer('quarantine_extension')
+            self.assertIs(preparation.must,ledger.must)
+            self.assertIs(denial.must,ledger.must)
+            self.assertIs(preparation.parse_json,quarantine.parse_json)
+            self.assertIsNot(preparation,fake_prep);self.assertIsNot(denial,fake_denial)
+            self.assertIsNot(quarantine,fake_quarantine)
+            records=preparation.preparation_records(fixture.l.db,fixture.l.account)
+            self.assertEqual(len(records),1)
+            self.assertIs(checkpoint.Ledger,ledger.Ledger)
+            self.assertIs(sys.modules['publisher_preparation'],fake_prep)
+            self.assertIs(sys.modules['denial_extension'],fake_denial)
+        fake_prep.preparation_records.assert_not_called()
+        fake_denial.bind.assert_not_called();fake_denial.eligible_history.assert_not_called()
+
+    def test_preparation_and_denial_eager_reads_remain_confined(self):
+        ledger=self.a._ledger_module
+        importer=ledger.__dict__['__builtins__']['__import__']
+        for name in ('publisher_preparation','denial_extension'):
+            module=importer(name)
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(GateBlocked,'outside'):
+                    module.file_bytes('/not-approved/DO_NOT_OPEN')
+                with mock.patch.object(ledger,'file_bytes',return_value=(b'synthetic','0'*64)) as read:
+                    self.assertEqual(module.file_bytes(self.f.root/'proof.txt'),(b'synthetic','0'*64))
+                read.assert_called_once_with(self.f.root/'proof.txt',None,8_000_000)
+
+    def test_preparation_source_mismatch_blocks_before_database_open(self):
+        copies=self.f.root/'mismatched-preparation-source';copies.mkdir()
+        for name in adapter_module.SOURCE_SHA256:
+            shutil.copyfile(FIXTURE_SOURCE_ROOT/name,copies/name)
+        helper=copies/'publisher_preparation.py';helper.write_bytes(helper.read_bytes()+b'\n# synthetic mismatch\n')
+        with mock.patch.object(adapter_module,'FIXTURE_SOURCE_ROOT',copies), \
+             mock.patch.object(adapter_module.sqlite3,'connect',side_effect=AssertionError('Must not open')):
+            with self.assertRaisesRegex(GateBlocked,'source hash mismatch'):
+                StagingLedgerAdapter(self.f.path,self.f.identity)
+
+    def test_unsupported_unprepared_publish_has_no_final_intent(self):
+        auth=self.ok('acquire',owner='synthetic.unprepared.publisher',role='publisher')
+        target='https://'+self.f.m.BLOG_HOST+'/987654'
+        ph=self.f.m.digest('synthetic unprepared payload')
+        action=self.ok('claim',owner=auth['owner'],token=auth['token'],
+                       kind='publish',target=target,payload_hash=ph)['action_id']
+        evidence=self.f.evidence(target,ph,'absent')
+        value=json.loads(evidence.read_text());value['kind']='publish'
+        evidence.write_text(self.f.m.canonical(value))
+        before='\n'.join(self.f.l.db.iterdump())
+        denied=self.fail('begin-write',owner=auth['owner'],token=auth['token'],action=action,evidence=evidence)
+        self.assertIn('preparation',denied['error'])
+        self.assertEqual(before,'\n'.join(self.f.l.db.iterdump()))
+        row=self.f.l.row(action);self.assertEqual(row['state'],'reserved');self.assertIsNone(row['intent_id'])
+
     def test_pinned_sources_do_not_use_ambient_settings_module(self):
         fake = object()
         with mock.patch.dict(sys.modules, {'settings': fake}):
@@ -503,7 +572,7 @@ class AdapterTests(unittest.TestCase):
                                   for target in node.targets))
         literal = ast.literal_eval(assignment.value)
         self.assertEqual(set(literal), {'ledger.py', 'checkpoint.py', 'denial_extension.py',
-                                      'quarantine_extension.py', 'package_recovery.py',
+                                      'quarantine_extension.py', 'publisher_preparation.py', 'package_recovery.py',
                                       'settings.py', 'integration_paths.py'})
         self.assertEqual(literal, adapter_module.SOURCE_SHA256)
         for name, digest in literal.items():

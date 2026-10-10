@@ -44,3 +44,16 @@ Restore old immutable archives with their own bundled code first. After a proper
 authorized quarantine closure, a new exact-version checkpoint must pass its normal
 round trip before an unrelated writer can acquire. No SQL schema/version change,
 automatic migration, or direct gate-clear operation is included.
+
+## Preparation-aware evidence closure
+
+New snapshots include validated `publisher_preparations` and all retained payload,
+image, draft permit/completion, final visual-inspection, and source blobs. Both
+`publisher_preparation.py` and `PREPARATION.md` are required archive members.
+Missing evidence or dependencies fails closed; original filesystem paths are not
+needed for restored validation. Final-call denial remains subject to the existing
+exact pre-execution proof and separately approved finalization contract.
+
+Even an empty preparation list changes the safe-state hash. Preserve old immutable
+archives and verify them with their own source version; acknowledge prior pending
+checkpoints before a separately reviewed upgrade. This changes no SQL schema.

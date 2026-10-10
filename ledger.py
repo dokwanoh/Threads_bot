@@ -207,6 +207,8 @@ class Ledger:
     def no_pending(self):
         from quarantine_extension import quarantine_records
         quarantine_records(self.db,self.account)  # Corrupt/missing quarantine proof blocks all acquisition.
+        from publisher_preparation import ensure_no_preparation_pending
+        ensure_no_preparation_pending(self)
         must(not self.db.execute('SELECT 1 FROM stops').fetchone(),'Account STOP remains')
         must(not self.db.execute("SELECT 1 FROM actions WHERE state IN ('intent','submitted_unverified','unknown')").fetchone(),'Unresolved account write blocks all dispatch')
 
@@ -284,7 +286,7 @@ class Ledger:
             exact(pm,('schema','account','db_id','baseline_hash','members'))
             must(pm['schema']=='threads-ledger-backup-v1' and pm['account']==self.account and pm['db_id']==r['db_id'] and pm['baseline_hash']==r['baseline_hash'],'Downloaded backup binding mismatch')
             must(type(pm['members']) is dict and set(z.namelist())==set(pm['members'])|{'PACKAGE_MANIFEST.json'},'Archive contains undeclared files')
-            must({'reconstructed.sqlite','ledger.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','settings.py','RECOVERY.md'}<=set(pm['members']),'Required backup members missing')
+            must({'reconstructed.sqlite','ledger.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','publisher_preparation.py','PREPARATION.md','settings.py','RECOVERY.md'}<=set(pm['members']),'Required backup members missing')
             total=0
             for name,expected in pm['members'].items():
                 must(not name.startswith('/') and '..' not in Path(name).parts,'Unsafe archive member')
@@ -337,6 +339,8 @@ class Ledger:
         must(HASH.fullmatch(payload_hash or ''),'Exact public payload hash required');key=action_key(self.account,kind,target)
         with self.tx():
             self.active();w=self.writer(owner,token);self.no_pending()
+            from publisher_preparation import ensure_preparation_action
+            ensure_preparation_action(self,key)
             from quarantine_extension import ensure_not_quarantined
             ensure_not_quarantined(self,kind,target)
             row=self.db.execute('SELECT * FROM actions WHERE id=?',(key,)).fetchone()
@@ -363,19 +367,33 @@ class Ledger:
         with self.tx():
             self.active();w=self.writer(owner,token);row=self.row(action);self.no_pending()
             must(row['state']=='reserved' and row['session']==w['session'],'Action not reserved by this writer')
+            from publisher_preparation import ensure_preparation_action
+            ensure_preparation_action(self,action)
             from quarantine_extension import ensure_not_quarantined
             ensure_not_quarantined(self,row['kind'],row['target_url'])
+            preparation_binding=None
+            if row['kind']=='publish':
+                from publisher_preparation import ensure_publish_prepared,check_prepared_fresh
+                preparation_binding=ensure_publish_prepared(self,owner,action)
             must(json.loads(data)['observed_at']>=self.clock()-300,'Preflight expired')
             self.blob(data);self.blob(proof);nonce=secrets.token_hex(32)
+            if preparation_binding is not None:check_prepared_fresh(self,preparation_binding)
             self.db.execute("UPDATE actions SET state='intent',intent_id=?,intent_at=?,updated_at=?,proof_hash=? WHERE id=?",(nonce,self.clock(),self.clock(),h,action))
             self.event('single_write_intent_committed',owner,action,intent_id=nonce,preflight_hash=h)
-        return {'action_id':action,'intent_id':nonce,'state':'intent','may_dispatch':True,'exactly_one_browser_call':True,'lost_response_means_do_not_dispatch':True}
+            if preparation_binding is not None:check_prepared_fresh(self,preparation_binding)
+        # If storage/COMMIT consumed the remaining freshness, the intent stays
+        # durable and blocks replay, but no dispatch permission is returned.
+        if preparation_binding is not None:check_prepared_fresh(self,preparation_binding)
+        return {'action_id':action,'intent_id':nonce,'state':'intent','may_dispatch':True,'exactly_one_browser_call':True,'lost_response_means_do_not_dispatch':True,
+                **({'preparation_binding':preparation_binding} if preparation_binding is not None else {})}
     def transition(self,owner,token,action,state,reason=''):
         allowed={'submitted_unverified':('intent',),'unknown':PENDING,'cancelled':('reserved',)}
         must(state in allowed,'Unsupported transition')
         with self.tx():
             self.active();w=self.writer(owner,token);row=self.row(action)
             must(row['session']==w['session'] and row['state'] in allowed[state],'Wrong owner/state')
+            from publisher_preparation import ensure_preparation_transition
+            ensure_preparation_transition(self,action,state)
             if state=='unknown':
                 text(reason,'unknown-outcome reason')
                 self.db.execute('INSERT OR IGNORE INTO stops VALUES(?,?,?,?)',(self.account,action,reason,self.clock()))
@@ -387,6 +405,8 @@ class Ledger:
         with self.tx():
             self.active();w=self.writer(owner,token);row=self.row(action)
             must(row['session']==w['session'] and row['state'] in ('reserved',)+PENDING,'Action not reconcilable by this writer')
+            from publisher_preparation import ensure_preparation_verify
+            ensure_preparation_verify(self,action,o)
             must(o['intent_id']==row['intent_id'] and o['observed_at']>=self.clock()-300,'Evidence changed/stale while acquiring transaction')
             must(row['intent_at'] is None or o['observed_at']>=row['intent_at'],'Readback predates current intent')
             self.blob(data);self.blob(proof)
@@ -418,6 +438,8 @@ class Ledger:
         return {'released':True,'checkpoint_pending':True,'checkpoint_seq':int(self.get('checkpoint_seq')),'may_dispatch':False}
     def status(self):
         with self.tx():
+            from publisher_preparation import preparation_records
+            preparations=preparation_records(self.db,self.account)
             from quarantine_extension import quarantine_records
             quarantines=quarantine_records(self.db,self.account)
             dispositions={r['action_id']:r for r in quarantines}
@@ -429,15 +451,15 @@ class Ledger:
             return {'account':self.account,'db_id':self.get('db_id'),'phase':self.get('phase'),'baseline_hash':self.get('baseline_hash'),'backup_hash':self.get('backup_hash'),
                     'checkpoint_pending':self.get('checkpoint_pending')=='1','checkpoint_seq':int(self.get('checkpoint_seq')),'checkpoint_library_id':self.get('checkpoint_library_id'),'checkpoint_library_version':self.get('checkpoint_library_version'),'checkpoint_archive_hash':self.get('checkpoint_archive_hash'),
                     'writer':dict(w) if w else None,'stops':[dict(r) for r in self.db.execute('SELECT * FROM stops')],
-                    'actions':actions,'quarantines':quarantines,
+                    'actions':actions,'quarantines':quarantines,'publisher_preparations':preparations,
                     'observations':self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],
                     'audit_events':self.db.execute('SELECT COUNT(*) FROM audit').fetchone()[0],
                     'may_dispatch':False,'original_database_restored':False,'browser_integration':'not_observed_by_cli'}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=('init-recovery','status','manifest','import-observation','seal','activate','acquire','claim','begin-write','submitted','unknown','cancel','verify','acknowledge-reconciliation','release','checkpoint-ack','record-denied-before-dispatch','finalize-denied-run','finalize-uncertain-quarantine','quarantines','hash-file'))
-    for name in ('db','account','owner','token','role','kind','target','payload-hash','action','evidence','record','sha256','reason','source','incident','incident-sha256','approval','approval-sha256','trusted-review','trusted-review-sha256'):p.add_argument('--'+name)
+    p.add_argument('command',choices=('init-recovery','status','manifest','import-observation','seal','activate','acquire','claim','begin-write','submitted','unknown','cancel','verify','acknowledge-reconciliation','release','checkpoint-ack','record-denied-before-dispatch','finalize-denied-run','finalize-uncertain-quarantine','quarantines','hash-file','create-publisher-preparation','begin-publisher-step','complete-publisher-step','seal-publisher-preparation','unknown-publisher-step'))
+    for name in ('db','account','owner','token','role','kind','target','payload-hash','action','evidence','record','sha256','reason','source','incident','incident-sha256','approval','approval-sha256','trusted-review','trusted-review-sha256','payload-file','payload-file-sha256','browser-session','tab-id','step-id','nonce'):p.add_argument('--'+name)
     args=vars(p.parse_args());command=args.pop('command');db=None
     def need(*keys):
         values=[args[k.replace('-','_')] for k in keys]
@@ -466,6 +488,14 @@ def main():
                 from quarantine_extension import quarantine_records
                 with db.tx():
                     out={'account':db.account,'db_id':db.get('db_id'),'quarantines':quarantine_records(db.db,db.account),'may_dispatch':False}
+            elif command in ('create-publisher-preparation','begin-publisher-step','complete-publisher-step','seal-publisher-preparation','unknown-publisher-step'):
+                from publisher_preparation import create_preparation,begin_step,complete_step,seal_preparation,stop_unknown_step
+                if command=='create-publisher-preparation':
+                    out=create_preparation(db,*need('owner','token','action','payload-file','payload-file-sha256','browser-session','tab-id'))
+                elif command=='begin-publisher-step':out=begin_step(db,*need('owner','token','action','step-id'))
+                elif command=='complete-publisher-step':out=complete_step(db,*need('owner','token','action','record','sha256'))
+                elif command=='seal-publisher-preparation':out=seal_preparation(db,*need('owner','token','action','record','sha256'))
+                else:out=stop_unknown_step(db,*need('owner','token','action','nonce','reason'))
             elif command=='checkpoint-ack':
                 from checkpoint import acknowledge
                 out=acknowledge(db,*need('record','sha256'))

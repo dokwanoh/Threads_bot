@@ -52,3 +52,16 @@ An older pending checkpoint must be acknowledged using its matching code before
 any separately reviewed source transition; the new quarantine-list manifest field
 changes safe-state hashes even for an empty list. Never rewrite old archive hashes,
 replace Library identities, reinitialize a ledger, or silently mix source versions.
+
+## Publisher preparation dependencies
+
+Every new publication now needs the exact bounded preparation contract in
+[PREPARATION.md](PREPARATION.md): five ordered one-use draft permits, retained
+original media and readbacks, and a separate fresh final visual seal before the
+ordinary final publish intent. Unknown draft work blocks the account; source
+publication does not authorize a permit or any actual browser operation.
+
+New baseline archives require `publisher_preparation.py` and `PREPARATION.md` in
+addition to the existing portable dependencies. The runtime manifest now includes
+`publisher_preparations`. An older pending checkpoint still requires its original
+bundled verifier and prior ACK before any reviewed source transition.

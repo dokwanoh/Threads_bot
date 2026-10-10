@@ -8,7 +8,7 @@ packaging, browser actions, Library calls, and production enablement are absent.
 
 The legacy filename is a compatibility name for the reviewed public post-denial
 baseline, not an archived pre-denial runtime. The source-only public baseline is pinned below, including its settings
-dependency and uncertainty-quarantine helper. Denial and quarantine closure
+dependency, uncertainty-quarantine and publisher-preparation helpers. Preparation, denial and quarantine closure
 commands remain absent from this adapter. Source changes require explicit review and literal pin updates;
 there are no private fixtures, operational database copies, or automatic repins.
 
@@ -49,11 +49,12 @@ FIXTURE_DATA_ROOT = INTEGRATION_ROOT / 'ledger'
 FROZEN_GATE = SOURCE_ROOT / 'dispatch_gate.py'
 SOURCE_SHA256 = {
     'integration_paths.py': '25c4285e65f563d20f2d17fd3625a00f83599b9e9d250b5becbd3840d94cd222',
-    'ledger.py': 'caf00278abebf0b2c6d5f4340dca810bb917aa7f964132fb55dc99ad9ec313ab',
-    'checkpoint.py': 'b7634c306c05ee5f66c0b01c8ff681e9c98b7da75cf9836fa9b3eef4ba6b8c20',
+    'ledger.py': '40dc19b56345d7bb271613feb75ae63569d26ab6a69c47c1a0a966a54ae967cd',
+    'checkpoint.py': '99acd1537622d777550de8804b66468fea417499fcecea3a5084455a196194d7',
     'denial_extension.py': '6cb41cc6d832cd9d656c4a948babd7e2613b98603c11cf90d6481685c65c427d',
-    'package_recovery.py': '7671f87d03e595c01862b51689574fc7bedb5c0fa9f2a2cdd0ca384f62757e0a',
+    'package_recovery.py': '9a9dd833beb507cd79e1fed1c81de3ff1e5d213c15168649cb7595a8c636eb2d',
     'quarantine_extension.py': 'a43fd424a05878ac1f8f9d77af6f51ef353047dca6022915cdf0ecb1a583d67e',
+    'publisher_preparation.py': '68a3fc5b4cdd3b95ff93652761365ba477b6e73bf50e1a7dc9297f1effb4ba68',
     'settings.py': '1c501fe96394b468b7d0038e44195f0ebd6dbf26aaa6ea44c168fa061127d058',
 }
 GATE_SHA256 = '2cda6b058cb99486b3e6d4b38574139e764847344aa6cc8dd3add3a451419cbf'
@@ -157,6 +158,10 @@ def _load_pinned_sources():
     ledger.__file__ = str(FIXTURE_SOURCE_ROOT / 'ledger.py')
     quarantine = types.ModuleType('_threads_staging_pinned_quarantine_extension')
     quarantine.__file__ = str(FIXTURE_SOURCE_ROOT / 'quarantine_extension.py')
+    denial = types.ModuleType('_threads_staging_pinned_denial_extension')
+    denial.__file__ = str(FIXTURE_SOURCE_ROOT / 'denial_extension.py')
+    preparation = types.ModuleType('_threads_staging_pinned_publisher_preparation')
+    preparation.__file__ = str(FIXTURE_SOURCE_ROOT / 'publisher_preparation.py')
     checkpoint = types.ModuleType('_threads_staging_pinned_checkpoint')
     checkpoint.__file__ = str(FIXTURE_SOURCE_ROOT / 'checkpoint.py')
     imports = dict(vars(builtins))
@@ -169,6 +174,10 @@ def _load_pinned_sources():
             return ledger
         if level == 0 and name == 'quarantine_extension':
             return quarantine
+        if level == 0 and name == 'denial_extension':
+            return denial
+        if level == 0 and name == 'publisher_preparation':
+            return preparation
         return real_import(name, globals, locals, fromlist, level)
 
     imports['__import__'] = pinned_import
@@ -183,6 +192,11 @@ def _load_pinned_sources():
         return ledger.file_bytes(path, expected, limit)
 
     quarantine.file_bytes = helper_file_bytes
+    # Preparation's historical denial checks must also use checked source bytes.
+    for module, name in ((denial, 'denial_extension.py'), (preparation, 'publisher_preparation.py')):
+        module.__dict__['__builtins__'] = imports
+        exec(compile(sources[name], module.__file__, 'exec', dont_inherit=True), module.__dict__)
+        module.file_bytes = helper_file_bytes
     checkpoint.__dict__['__builtins__'] = imports
     exec(compile(sources['checkpoint.py'], checkpoint.__file__, 'exec', dont_inherit=True), checkpoint.__dict__)
     return ledger, checkpoint

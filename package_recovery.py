@@ -40,8 +40,8 @@ def package(db_path,output,source_dir=None,account=ACCOUNT):
                      'BASELINE_MANIFEST.json':(json.dumps(manifest,ensure_ascii=False,sort_keys=True,indent=2)+'\n').encode()}
             # Explicit code/test/doc allowlist: no run token file, arbitrary directory
             # walk, .env, browser profile, or unrelated workspace material is included.
-            names=['ledger.py','checkpoint.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','package_recovery.py','settings.py','RECOVERY.md','FAIL_FAST.md','CHECKPOINT.md']
-            test_names=('test_independent.py','test_checkpoint_independent.py','test_denial_independent.py','test_denial_freshness.py','test_denial_cli.py','test_quarantine_extension.py','test_quarantine_plumbing.py','test_archive_closure.py')
+            names=['ledger.py','checkpoint.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','publisher_preparation.py','PREPARATION.md','package_recovery.py','settings.py','RECOVERY.md','FAIL_FAST.md','CHECKPOINT.md']
+            test_names=('test_independent.py','test_checkpoint_independent.py','test_denial_independent.py','test_denial_freshness.py','test_denial_cli.py','test_quarantine_extension.py','test_quarantine_plumbing.py','test_archive_closure.py','test_publisher_preparation.py','test_preparation_cli.py','test_preparation_archive.py')
             names += [name for name in test_names if (source_dir/name).exists()]
             for name in names:
                 p=source_dir/name;must(p.is_file() and not p.is_symlink(),'Missing package source '+name)

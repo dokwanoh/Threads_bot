@@ -44,7 +44,7 @@ class BaselineClosureTests(unittest.TestCase):
         self.assertEqual(self.l.status()['quarantines'],[])
 
     def test_missing_new_required_dependency_never_activates(self):
-        for dropped in ['quarantine_extension.py','QUARANTINE.md']:
+        for dropped in ['quarantine_extension.py','QUARANTINE.md','publisher_preparation.py','PREPARATION.md','settings.py']:
             with self.subTest(dropped=dropped):
                 with zipfile.ZipFile(self.archive) as z:members={n:z.read(n) for n in z.namelist()}
                 manifest=json.loads(members['PACKAGE_MANIFEST.json']);del members[dropped];del manifest['members'][dropped]
