@@ -35,3 +35,20 @@ ledger-only denial closure.
 
 Source updates, valid archives, and successful synthetic tests do not authorize
 deployment, activation, STOP clearance, or resumption of social actions.
+
+## Uncertain-attempt quarantine
+
+The separate [quarantine contract](QUARANTINE.md) permits a narrowly reviewed
+legacy UI attempt to become workflow-terminal while its external outcome remains
+unknown. It requires exact, independently authenticated approval accepting that
+uncertainty. The canonical post remains permanently blocked across repost, like,
+reply, and self-reply aliases; verified count stays zero and retries remain forbidden.
+This does not extend ordinary denial closure or infer permission from a repository
+upload, role grant, or earlier unrelated approval.
+
+New baseline archives require `quarantine_extension.py` and `QUARANTINE.md` alongside
+`settings.py`. Keep old archives and their reviewed bundled verifiers intact.
+An older pending checkpoint must be acknowledged using its matching code before
+any separately reviewed source transition; the new quarantine-list manifest field
+changes safe-state hashes even for an empty list. Never rewrite old archive hashes,
+replace Library identities, reinitialize a ledger, or silently mix source versions.

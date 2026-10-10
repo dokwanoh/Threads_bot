@@ -18,9 +18,16 @@ Ledger adapters execute explicitly hash-pinned public source and accept only the
 dedicated disposable staging subdirectories. Both adapter filenames are compatible
 entry points against this repository's reviewed ledger baseline, not historical
 operational source copies. Their limited command surface excludes initialization,
-activation, recovery, denial finalization, STOP clearance, and browser actions.
+activation, recovery, denial or uncertainty finalization, STOP clearance, and browser actions.
 Changes to pinned source require explicit review and literal pin updates; never
 compute a new acceptable pin automatically at runtime.
+
+The adapters in this public revision explicitly pin the quarantine-aware portable
+ledger, checkpoint, packager, and quarantine helper. They load the helper from
+those checked bytes and retain the same restricted command surface. The unchanged
+queue/core source pins remain separate. Earlier v4 work is not part of this public
+integration and cannot accept this baseline without its own explicit pin update,
+regression tests, and independent review. No v4 production route is enabled here.
 
 ## Authorization and role goals
 

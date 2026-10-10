@@ -28,3 +28,19 @@ transport or restore procedure.
 
 Runtime archives contain operational state and evidence. They are private artifacts
 and must never be committed to this source repository.
+
+## Quarantine-aware source version
+
+This revision includes validated quarantine records in the runtime safe-state
+manifest and requires `quarantine_extension.py`, `QUARANTINE.md`, and `settings.py`
+in new archives. Proof/source closure is embedded, including the independently
+reviewed uncertainty approval; those operational bytes must remain private.
+Workflow cancellation cannot erase the retained unknown external disposition.
+
+An older pending checkpoint needs its original matching verifier, because adding
+an empty quarantine list still changes the manifest hash. A separately reviewed
+source transition must follow that ACK and exact version-chain verification.
+Restore old immutable archives with their own bundled code first. After a properly
+authorized quarantine closure, a new exact-version checkpoint must pass its normal
+round trip before an unrelated writer can acquire. No SQL schema/version change,
+automatic migration, or direct gate-clear operation is included.

@@ -71,6 +71,8 @@ class Fixture:
         members = {'reconstructed.sqlite': snapshot.read_bytes(),
                    'ledger.py': (ROOT / 'ledger.py').read_bytes(),
                    'denial_extension.py': (ROOT / 'denial_extension.py').read_bytes(),
+                   'quarantine_extension.py': (ROOT / 'quarantine_extension.py').read_bytes(),
+                   'QUARANTINE.md': (ROOT / 'QUARANTINE.md').read_bytes(),
                    'settings.py': (ROOT / 'settings.py').read_bytes(),
                    'RECOVERY.md': b'Synthetic isolated backup fixture. Never use operationally.'}
         if extra: members.update(extra)
@@ -335,7 +337,7 @@ class IndependentLedgerTests(unittest.TestCase):
         p,h=self.f.receipt(self.f.make_archive(mutate));self.blocked(self.f.l.activate,p,h)
     def package_source(self):
         source=self.f.root/'package-source';source.mkdir()
-        for name in ('ledger.py','denial_extension.py','package_recovery.py','checkpoint.py','settings.py','test_independent.py'):
+        for name in ('ledger.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','package_recovery.py','checkpoint.py','settings.py','test_independent.py'):
             (source/name).write_bytes((ROOT/name).read_bytes())
         (source/'RECOVERY.md').write_text('Synthetic recovery documentation.')
         (source/'FAIL_FAST.md').write_text('Synthetic fail-closed documentation.')

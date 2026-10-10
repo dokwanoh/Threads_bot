@@ -205,6 +205,8 @@ class Ledger:
         must(self.get('phase')=='active' and self.get('backup_hash'),'Recovery/backup gate blocks runtime writes')
         must(self.get('checkpoint_pending')=='0','Released run checkpoint must be verified before another write')
     def no_pending(self):
+        from quarantine_extension import quarantine_records
+        quarantine_records(self.db,self.account)  # Corrupt/missing quarantine proof blocks all acquisition.
         must(not self.db.execute('SELECT 1 FROM stops').fetchone(),'Account STOP remains')
         must(not self.db.execute("SELECT 1 FROM actions WHERE state IN ('intent','submitted_unverified','unknown')").fetchone(),'Unresolved account write blocks all dispatch')
 
@@ -282,7 +284,7 @@ class Ledger:
             exact(pm,('schema','account','db_id','baseline_hash','members'))
             must(pm['schema']=='threads-ledger-backup-v1' and pm['account']==self.account and pm['db_id']==r['db_id'] and pm['baseline_hash']==r['baseline_hash'],'Downloaded backup binding mismatch')
             must(type(pm['members']) is dict and set(z.namelist())==set(pm['members'])|{'PACKAGE_MANIFEST.json'},'Archive contains undeclared files')
-            must({'reconstructed.sqlite','ledger.py','denial_extension.py','settings.py','RECOVERY.md'}<=set(pm['members']),'Required backup members missing')
+            must({'reconstructed.sqlite','ledger.py','denial_extension.py','quarantine_extension.py','QUARANTINE.md','settings.py','RECOVERY.md'}<=set(pm['members']),'Required backup members missing')
             total=0
             for name,expected in pm['members'].items():
                 must(not name.startswith('/') and '..' not in Path(name).parts,'Unsafe archive member')
@@ -335,6 +337,8 @@ class Ledger:
         must(HASH.fullmatch(payload_hash or ''),'Exact public payload hash required');key=action_key(self.account,kind,target)
         with self.tx():
             self.active();w=self.writer(owner,token);self.no_pending()
+            from quarantine_extension import ensure_not_quarantined
+            ensure_not_quarantined(self,kind,target)
             row=self.db.execute('SELECT * FROM actions WHERE id=?',(key,)).fetchone()
             if row:return {'action_id':key,'state':row['state'],'duplicate':True,'payload_matches':row['payload_hash']==payload_hash,'may_dispatch':False}
             self.db.execute("INSERT INTO actions(id,account,kind,target_key,target_url,payload_hash,state,session,created_at,updated_at) VALUES(?,?,?,?,?,?,'reserved',?,?,?)",(key,self.account,kind,target_key(kind,target),target,payload_hash,w['session'],self.clock(),self.clock()))
@@ -359,6 +363,8 @@ class Ledger:
         with self.tx():
             self.active();w=self.writer(owner,token);row=self.row(action);self.no_pending()
             must(row['state']=='reserved' and row['session']==w['session'],'Action not reserved by this writer')
+            from quarantine_extension import ensure_not_quarantined
+            ensure_not_quarantined(self,row['kind'],row['target_url'])
             must(json.loads(data)['observed_at']>=self.clock()-300,'Preflight expired')
             self.blob(data);self.blob(proof);nonce=secrets.token_hex(32)
             self.db.execute("UPDATE actions SET state='intent',intent_id=?,intent_at=?,updated_at=?,proof_hash=? WHERE id=?",(nonce,self.clock(),self.clock(),h,action))
@@ -412,19 +418,26 @@ class Ledger:
         return {'released':True,'checkpoint_pending':True,'checkpoint_seq':int(self.get('checkpoint_seq')),'may_dispatch':False}
     def status(self):
         with self.tx():
+            from quarantine_extension import quarantine_records
+            quarantines=quarantine_records(self.db,self.account)
+            dispositions={r['action_id']:r for r in quarantines}
+            actions=[dict(r) for r in self.db.execute('SELECT * FROM actions ORDER BY created_at,id')]
+            for row in actions:
+                if row['id'] in dispositions:
+                    row.update(external_outcome='unknown',termination='operator_accepted_uncertainty',new_verified_count=0,retry_allowed=False,quarantined=True)
             w=self.db.execute('SELECT account,session,owner,role,acquired_at FROM writer').fetchone()
             return {'account':self.account,'db_id':self.get('db_id'),'phase':self.get('phase'),'baseline_hash':self.get('baseline_hash'),'backup_hash':self.get('backup_hash'),
                     'checkpoint_pending':self.get('checkpoint_pending')=='1','checkpoint_seq':int(self.get('checkpoint_seq')),'checkpoint_library_id':self.get('checkpoint_library_id'),'checkpoint_library_version':self.get('checkpoint_library_version'),'checkpoint_archive_hash':self.get('checkpoint_archive_hash'),
                     'writer':dict(w) if w else None,'stops':[dict(r) for r in self.db.execute('SELECT * FROM stops')],
-                    'actions':[dict(r) for r in self.db.execute('SELECT * FROM actions ORDER BY created_at,id')],
+                    'actions':actions,'quarantines':quarantines,
                     'observations':self.db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],
                     'audit_events':self.db.execute('SELECT COUNT(*) FROM audit').fetchone()[0],
                     'may_dispatch':False,'original_database_restored':False,'browser_integration':'not_observed_by_cli'}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=('init-recovery','status','manifest','import-observation','seal','activate','acquire','claim','begin-write','submitted','unknown','cancel','verify','acknowledge-reconciliation','release','checkpoint-ack','record-denied-before-dispatch','finalize-denied-run','hash-file'))
-    for name in ('db','account','owner','token','role','kind','target','payload-hash','action','evidence','record','sha256','reason','source'):p.add_argument('--'+name)
+    p.add_argument('command',choices=('init-recovery','status','manifest','import-observation','seal','activate','acquire','claim','begin-write','submitted','unknown','cancel','verify','acknowledge-reconciliation','release','checkpoint-ack','record-denied-before-dispatch','finalize-denied-run','finalize-uncertain-quarantine','quarantines','hash-file'))
+    for name in ('db','account','owner','token','role','kind','target','payload-hash','action','evidence','record','sha256','reason','source','incident','incident-sha256','approval','approval-sha256','trusted-review','trusted-review-sha256'):p.add_argument('--'+name)
     args=vars(p.parse_args());command=args.pop('command');db=None
     def need(*keys):
         values=[args[k.replace('-','_')] for k in keys]
@@ -444,6 +457,15 @@ def main():
                 from denial_extension import record_denied,finalize_denied_run
                 method=record_denied if command=='record-denied-before-dispatch' else finalize_denied_run
                 out=method(db,*need('owner','token','action','record','sha256'))
+            elif command=='finalize-uncertain-quarantine':
+                from quarantine_extension import finalize_uncertain_quarantine,load_trusted_review
+                trusted=load_trusted_review(*need('trusted-review','trusted-review-sha256'))
+                out=finalize_uncertain_quarantine(db,*need('owner','token','action',
+                    'incident','incident-sha256','approval','approval-sha256'),trusted_review=trusted)
+            elif command=='quarantines':
+                from quarantine_extension import quarantine_records
+                with db.tx():
+                    out={'account':db.account,'db_id':db.get('db_id'),'quarantines':quarantine_records(db.db,db.account),'may_dispatch':False}
             elif command=='checkpoint-ack':
                 from checkpoint import acknowledge
                 out=acknowledge(db,*need('record','sha256'))

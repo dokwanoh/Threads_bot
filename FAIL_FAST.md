@@ -24,3 +24,11 @@ and verify reconciliation. Preserve immutable history rather than rewriting it.
 These are cooperative single-host controls. They cannot fence human actions or
 unrelated clients, authenticate arbitrary caller assertions, or promise external
 exactly-once delivery. All real writers must eventually use the reviewed route.
+
+A separately authorized uncertain-attempt quarantine can terminate only the exact
+legacy attempt while preserving `external_outcome=unknown`, zero verified count,
+and `retry_allowed=false`. It permanently excludes the entire canonical post from
+all post-write kinds. Corrupt or missing quarantine evidence blocks acquisition,
+status, and checkpoints. Fresh unrelated work remains gated by the normal verified
+checkpoint. Read [QUARANTINE.md](QUARANTINE.md) for the exact trust boundary; a
+partial readback or a rehashed approval object cannot authenticate an approval.

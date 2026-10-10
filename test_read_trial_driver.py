@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 import read_trial_driver as driver
 from dispatch_gate import GateBlocked
@@ -33,6 +34,8 @@ class DriverTests(unittest.TestCase):
                     claim=read_step(bridge,'claim',ticket,pin)
                     observed={**pin.as_dict(),'exists':True,'logged_in':True,'observed_at':int(time.time())}
                     read_step(bridge,'begin',ticket,pin,claimed_at=claim['claimed_at'],data=observed)
+                    # The completion represents a new observation after begin, not the preflight.
+                    observed={**pin.as_dict(),'exists':True,'logged_in':True,'observed_at':int(time.time())}
                     result={'completed':True,'exit_code':0,'stdout':{'ok':True,'binding':observed},
                             'truncated':False,'session_id':None,'stderr':''}
                     read_step(bridge,'complete',ticket,pin,claimed_at=claim['claimed_at'],data=result)
@@ -89,6 +92,39 @@ class DriverTests(unittest.TestCase):
                                    protected=(alias,'synthetic-protected-tab'))
                 self.assertFalse(list(Path(tmp).iterdir()))
 
+    def test_clock_boundary_requires_separate_post_begin_observation(self):
+        for fresh in (False,True):
+            with self.subTest(fresh=fresh), tempfile.TemporaryDirectory(dir=INTEGRATION_ROOT) as tmp:
+                clock=[1_800_000_000]
+                with patch('time.time',side_effect=lambda:clock[0]):
+                    value=driver.publish(tmp,self.pins(1),'synthetic-read-reference',
+                                         duration=30,protected=self.protected)
+                    item=value['tickets'][0]
+                    pin=BindingPin.from_dict(item['binding'])
+                    ticket=RequestTicket(item['request_id'],item['request_digest'])
+                    with FileToolBridge(value['bridge_root']) as bridge:
+                        claim=read_step(bridge,'claim',ticket,pin)
+                        preflight={**pin.as_dict(),'exists':True,'logged_in':True,'observed_at':clock[0]}
+                        clock[0]+=1
+                        begun=read_step(bridge,'begin',ticket,pin,
+                                        claimed_at=claim['claimed_at'],data=preflight)
+                        self.assertLess(preflight['observed_at'],begun['dispatched_at'])
+                        clock[0]+=1
+                        observed={**preflight,'observed_at':clock[0]} if fresh else preflight
+                        envelope={'completed':True,'exit_code':0,'stdout':{'ok':True,'binding':observed},
+                                  'truncated':False,'session_id':None,'stderr':''}
+                        if fresh:
+                            read_step(bridge,'complete',ticket,pin,
+                                      claimed_at=claim['claimed_at'],data=envelope)
+                        else:
+                            with self.assertRaises(GateBlocked):
+                                read_step(bridge,'complete',ticket,pin,
+                                          claimed_at=claim['claimed_at'],data=envelope)
+                    if fresh:
+                        accepted=driver.consume(value['manifest'],value['manifest_sha256'])
+                        self.assertEqual(accepted['results'][0]['binding']['observed_at'],clock[0])
+                        self.assertTrue(accepted['no_social_mutation'])
+
     def test_actual_subprocess_observe_only_roundtrip(self):
         with tempfile.TemporaryDirectory(dir=INTEGRATION_ROOT) as tmp:
             root=Path(tmp);trial=root/'trial';trial.mkdir()
@@ -111,6 +147,9 @@ class DriverTests(unittest.TestCase):
             observation=root/'observation.json';observation.write_text(json.dumps(observed))
             run('native_read_cli.py','begin',*args,'--claimed-at',claim['claimed_at'],
                 '--data-file',observation)
+            # A subprocess may cross a second boundary during begin. Completion must
+            # use a separately collected post-begin synthetic observation.
+            observed={**item['binding'],'exists':True,'logged_in':True,'observed_at':int(time.time())}
             envelope=root/'completion.json';envelope.write_text(json.dumps({
                 'completed':True,'exit_code':0,'stdout':{'ok':True,'binding':observed},
                 'truncated':False,'session_id':None,'stderr':''}))

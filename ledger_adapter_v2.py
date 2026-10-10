@@ -7,8 +7,8 @@ under FIXTURE_DATA_ROOT. Initialization, activation, recovery, STOP clearing,
 packaging, browser actions, Library calls, and production enablement are absent.
 
 The source-only public baseline is pinned below, including its settings
-dependency. Denial commands remain absent
-from this adapter. Source changes require explicit review and literal pin updates;
+dependency and uncertainty-quarantine helper. Denial and quarantine closure
+commands remain absent from this adapter. Source changes require explicit review and literal pin updates;
 there are no private fixtures, operational database copies, or automatic repins.
 
 CommandResult.stdout/stderr are memory-only compatibility fields, NEVER process
@@ -48,16 +48,18 @@ FIXTURE_DATA_ROOT = INTEGRATION_ROOT / 'ledger-v2'
 FROZEN_GATE = SOURCE_ROOT / 'dispatch_gate.py'
 SOURCE_SHA256 = {
     'integration_paths.py': '25c4285e65f563d20f2d17fd3625a00f83599b9e9d250b5becbd3840d94cd222',
-    'ledger.py': '7004c04c9f8867ed92bc8eb3e4d3121e319cab6d68b9730ff99778b2dbd39076',
-    'checkpoint.py': 'f34453944ffdd3b7c6c054f6d73635103bf1725da316f06420fb8c0d8461b3be',
+    'ledger.py': 'caf00278abebf0b2c6d5f4340dca810bb917aa7f964132fb55dc99ad9ec313ab',
+    'checkpoint.py': 'b7634c306c05ee5f66c0b01c8ff681e9c98b7da75cf9836fa9b3eef4ba6b8c20',
     'denial_extension.py': '6cb41cc6d832cd9d656c4a948babd7e2613b98603c11cf90d6481685c65c427d',
-    'package_recovery.py': 'c6c96e776f29b84038f02ba98f98ddf6ab73dee371837e9f0feed001359ca007',
+    'package_recovery.py': '7671f87d03e595c01862b51689574fc7bedb5c0fa9f2a2cdd0ca384f62757e0a',
+    'quarantine_extension.py': 'a43fd424a05878ac1f8f9d77af6f51ef353047dca6022915cdf0ecb1a583d67e',
     'settings.py': '1c501fe96394b468b7d0038e44195f0ebd6dbf26aaa6ea44c168fa061127d058',
 }
 GATE_SHA256 = '2cda6b058cb99486b3e6d4b38574139e764847344aa6cc8dd3add3a451419cbf'
 
 # Exact coordinator command surface. No dynamic getattr(command), recovery,
-# denial finalization, reconciliation acknowledgement, hash-file, or CLI main.
+# denial/quarantine finalization, quarantine CLI, reconciliation acknowledgement,
+# hash-file, or CLI main.
 COMMAND_FIELDS = {
     'status': (),
     'acquire': ('owner', 'role'),
@@ -152,6 +154,8 @@ def _load_pinned_sources():
              'Pinned staging configuration does not match integration root')
     ledger = types.ModuleType('_threads_staging_pinned_ledger')
     ledger.__file__ = str(FIXTURE_SOURCE_ROOT / 'ledger.py')
+    quarantine = types.ModuleType('_threads_staging_pinned_quarantine_extension')
+    quarantine.__file__ = str(FIXTURE_SOURCE_ROOT / 'quarantine_extension.py')
     checkpoint = types.ModuleType('_threads_staging_pinned_checkpoint')
     checkpoint.__file__ = str(FIXTURE_SOURCE_ROOT / 'checkpoint.py')
     imports = dict(vars(builtins))
@@ -162,11 +166,22 @@ def _load_pinned_sources():
             return settings
         if level == 0 and name == 'ledger':
             return ledger
+        if level == 0 and name == 'quarantine_extension':
+            return quarantine
         return real_import(name, globals, locals, fromlist, level)
 
     imports['__import__'] = pinned_import
     ledger.__dict__['__builtins__'] = imports
     exec(compile(sources['ledger.py'], ledger.__file__, 'exec', dont_inherit=True), ledger.__dict__)
+    quarantine.__dict__['__builtins__'] = imports
+    exec(compile(sources['quarantine_extension.py'], quarantine.__file__, 'exec',
+                 dont_inherit=True), quarantine.__dict__)
+    # The helper imports file_bytes eagerly. Resolve it through this isolated
+    # ledger so the adapter's later confinement hook also covers helper reads.
+    def helper_file_bytes(path, expected=None, limit=8_000_000):
+        return ledger.file_bytes(path, expected, limit)
+
+    quarantine.file_bytes = helper_file_bytes
     checkpoint.__dict__['__builtins__'] = imports
     exec(compile(sources['checkpoint.py'], checkpoint.__file__, 'exec', dont_inherit=True), checkpoint.__dict__)
     return ledger, checkpoint

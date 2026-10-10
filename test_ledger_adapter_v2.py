@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from unittest import mock
 import zipfile
@@ -75,6 +76,8 @@ class SyntheticFixture:
         members = {'reconstructed.sqlite': snapshot.read_bytes(),
                    'ledger.py': (FIXTURE_SOURCE_ROOT / 'ledger.py').read_bytes(),
                    'denial_extension.py': (FIXTURE_SOURCE_ROOT / 'denial_extension.py').read_bytes(),
+                   'quarantine_extension.py': (FIXTURE_SOURCE_ROOT / 'quarantine_extension.py').read_bytes(),
+                   'QUARANTINE.md': b'Disposable synthetic quarantine contract. Never use operationally.',
                    'settings.py': (FIXTURE_SOURCE_ROOT / 'settings.py').read_bytes(),
                    'RECOVERY.md': b'Disposable synthetic recovery fixture. Never use operationally.'}
         manifest = dict(schema='threads-ledger-backup-v1', account=ACCOUNT,
@@ -165,6 +168,37 @@ class AdapterTests(unittest.TestCase):
                          action=action, evidence=evidence)
         return auth, action, ph, intent
 
+    def finalize_synthetic_quarantine(self):
+        # Reuse only the public synthetic bundle builder. All ledger work and
+        # evidence files stay in this adapter's disposable, confined fixture.
+        from test_quarantine_extension import Fixture, PAYLOAD
+        fixture = Fixture.__new__(Fixture)
+        fixture.root, fixture.path, fixture.l = self.f.root, self.f.path, self.f.l
+        fixture.base = fixture.time = self.f.now
+        fixture.target = TARGET
+        fixture.auth = self.acquire()
+        fixture.owner, fixture.token = fixture.auth['owner'], fixture.auth['token']
+        fixture.action = self.ok('claim', owner=fixture.owner, token=fixture.token,
+            kind='repost', target=fixture.target, payload_hash=PAYLOAD)['action_id']
+        evidence = self.f.evidence(fixture.target, PAYLOAD, 'absent')
+        value = json.loads(evidence.read_text())
+        evidence.write_text(self.f.m.canonical({**value, 'kind': 'repost'}))
+        fixture.intent = self.ok('begin-write', owner=fixture.owner, token=fixture.token,
+            action=fixture.action, evidence=evidence)['intent_id']
+        self.f.now += 3
+        self.ok('unknown', owner=fixture.owner, token=fixture.token,
+                action=fixture.action, reason='Synthetic menu loading UI-abort')
+        fixture.make_evidence()
+        self.f.now = fixture.time
+        pinned = self.a._ledger_module.__dict__['__builtins__']['__import__']('quarantine_extension')
+        result = pinned.finalize_uncertain_quarantine(self.f.l, fixture.owner, fixture.token,
+            fixture.action, fixture.ip, fixture.ih, fixture.ap, fixture.ah,
+            trusted_review=pinned.TrustedReviewPin.from_dict(fixture.pin_dict))
+        self.assertEqual(result['new_verified_count'], 0)
+        self.assertEqual(result['external_outcome'], 'unknown')
+        self.assertFalse(result['retry_allowed'])
+        return fixture.action
+
     def test_status_matches_actual_cli_shape(self):
         out = self.a.execute('status')
         self.assertEqual(json.loads(out.stdout), {'ok': True, **self.f.l.status()})
@@ -246,6 +280,7 @@ class AdapterTests(unittest.TestCase):
         initial = self.f.l.status()['audit_events']
         for command in ('init-recovery', 'activate', 'seal', 'manifest', 'hash-file',
                         'record-denied-before-dispatch', 'finalize-denied-run',
+                        'finalize-uncertain-quarantine', 'quarantines',
                         'acknowledge-reconciliation', '__getattribute__', 'close', 'begin_write'):
             self.fail(command)
         self.fail('status', db=str(self.f.path))
@@ -352,6 +387,95 @@ class AdapterTests(unittest.TestCase):
             self.assertIs(checkpoint.Ledger, ledger.Ledger)
             self.assertIs(sys.modules['ledger'], fake)
 
+    def test_quarantine_helper_import_ignores_ambient_module_and_ledger(self):
+        fake_ledger = object()
+        fake_quarantine = types.SimpleNamespace(
+            quarantine_records=mock.Mock(return_value=[]),
+            ensure_not_quarantined=mock.Mock(return_value=None))
+        with mock.patch.dict(sys.modules, {'ledger': fake_ledger,
+                                          'quarantine_extension': fake_quarantine}):
+            ledger, checkpoint = adapter_module._load_pinned_sources()
+            pinned = ledger.__dict__['__builtins__']['__import__']('quarantine_extension')
+            self.assertIsNot(pinned, fake_quarantine)
+            self.assertIs(pinned.must, ledger.must)
+            self.assertIs(pinned.action_key, ledger.action_key)
+            self.assertIs(checkpoint.Ledger, ledger.Ledger)
+            self.assertNotIn(pinned.__name__, sys.modules)
+            self.assertIs(sys.modules['quarantine_extension'], fake_quarantine)
+            self.assertIs(sys.modules['ledger'], fake_ledger)
+            self.assertEqual(self.ok('status')['quarantines'], [])
+            auth, action, _ = self.reserve()
+            self.ok('cancel', owner=auth['owner'], token=auth['token'], action=action)
+            self.ok('release', owner=auth['owner'], token=auth['token'])
+            path, sha, _, _ = self.f.checkpoint()
+            self.ok('checkpoint-ack', record=path, sha256=sha)
+        fake_quarantine.quarantine_records.assert_not_called()
+        fake_quarantine.ensure_not_quarantined.assert_not_called()
+
+    def test_quarantine_helper_reads_use_adapter_confinement(self):
+        ledger = self.a._ledger_module
+        pinned = ledger.__dict__['__builtins__']['__import__']('quarantine_extension')
+        with self.assertRaisesRegex(GateBlocked, 'outside'):
+            pinned.load_trusted_review('/not-approved/DO_NOT_OPEN', '0' * 64)
+        with mock.patch.object(ledger, 'file_bytes', return_value=(b'synthetic', '0' * 64)) as reader:
+            self.assertEqual(pinned.file_bytes(self.f.root / 'proof.txt'), (b'synthetic', '0' * 64))
+        reader.assert_called_once_with(self.f.root / 'proof.txt', None, 8_000_000)
+
+    def test_quarantine_helper_source_mismatch_blocks_initialization(self):
+        copies = self.f.root / 'mismatched-quarantine-source'
+        copies.mkdir()
+        for name in adapter_module.SOURCE_SHA256:
+            shutil.copyfile(FIXTURE_SOURCE_ROOT / name, copies / name)
+        helper = copies / 'quarantine_extension.py'
+        helper.write_bytes(helper.read_bytes() + b'\n# mismatched synthetic helper\n')
+        with mock.patch.object(adapter_module, 'FIXTURE_SOURCE_ROOT', copies), \
+             mock.patch.object(adapter_module.sqlite3, 'connect', side_effect=AssertionError('Must not open')):
+            with self.assertRaisesRegex(GateBlocked, 'source hash mismatch'):
+                StagingLedgerAdapter(self.f.path, self.f.identity)
+
+    def test_quarantine_blocks_aliases_and_other_kinds_after_checkpoint(self):
+        action = self.finalize_synthetic_quarantine()
+        fake_quarantine = types.SimpleNamespace(
+            quarantine_records=mock.Mock(return_value=[]),
+            ensure_not_quarantined=mock.Mock(return_value=None))
+        with mock.patch.dict(sys.modules, {'quarantine_extension': fake_quarantine}):
+            status = self.ok('status')
+            self.assertTrue(status['checkpoint_pending'])
+            self.assertEqual([q['action_id'] for q in status['quarantines']], [action])
+            quarantined = next(row for row in status['actions'] if row['id'] == action)
+            self.assertTrue(quarantined['quarantined'])
+            self.assertEqual(quarantined['external_outcome'], 'unknown')
+            self.fail('acquire', owner='synthetic.after-quarantine', role='spreader')
+            path, sha, _, _ = self.f.checkpoint()
+            self.ok('checkpoint-ack', record=path, sha256=sha)
+            auth = self.acquire('synthetic.after-quarantine')
+            before = '\n'.join(self.f.l.db.iterdump())
+            for host in ('threads.com', 'www.threads.com', 'threads.net', 'www.threads.net'):
+                for kind in ('repost', 'like', 'reply', 'self_reply'):
+                    target = f'https://{host}/@different_alias/post/AdapterSyntheticA/'
+                    with self.subTest(host=host, kind=kind):
+                        error = self.fail('claim', owner=auth['owner'], token=auth['token'],
+                            kind=kind, target=target, payload_hash=self.f.m.digest('synthetic payload'))
+                        self.assertIn('quarantine', error['error'])
+                        self.assertEqual(before, '\n'.join(self.f.l.db.iterdump()))
+            target = TARGET + 'Unrelated'
+            payload_hash = self.f.m.digest('synthetic unrelated payload')
+            other = self.ok('claim', owner=auth['owner'], token=auth['token'],
+                kind='like', target=target, payload_hash=payload_hash)['action_id']
+            intent = self.ok('begin-write', owner=auth['owner'], token=auth['token'],
+                action=other, evidence=self.f.evidence(target, payload_hash, 'absent'))
+            self.ok('submitted', owner=auth['owner'], token=auth['token'], action=other)
+            verified = self.ok('verify', owner=auth['owner'], token=auth['token'], action=other,
+                evidence=self.f.evidence(target, payload_hash, 'present', intent['intent_id']))
+            self.assertEqual(verified['state'], 'verified')
+            self.ok('release', owner=auth['owner'], token=auth['token'])
+            path, sha, _, _ = self.f.checkpoint(previous_version='synthetic-runtime-v1',
+                                               library_version='synthetic-runtime-v2')
+            self.ok('checkpoint-ack', record=path, sha256=sha)
+            self.assertEqual([q['action_id'] for q in self.ok('status')['quarantines']], [action])
+        fake_quarantine.quarantine_records.assert_not_called()
+        fake_quarantine.ensure_not_quarantined.assert_not_called()
+
     def test_pinned_sources_do_not_use_ambient_settings_module(self):
         fake = object()
         with mock.patch.dict(sys.modules, {'settings': fake}):
@@ -379,7 +503,8 @@ class AdapterTests(unittest.TestCase):
                                   for target in node.targets))
         literal = ast.literal_eval(assignment.value)
         self.assertEqual(set(literal), {'ledger.py', 'checkpoint.py', 'denial_extension.py',
-                                      'package_recovery.py', 'settings.py', 'integration_paths.py'})
+                                      'quarantine_extension.py', 'package_recovery.py',
+                                      'settings.py', 'integration_paths.py'})
         self.assertEqual(literal, adapter_module.SOURCE_SHA256)
         for name, digest in literal.items():
             self.assertEqual(self.f.m.digest((FIXTURE_SOURCE_ROOT / name).read_bytes()), digest)

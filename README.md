@@ -11,6 +11,9 @@ operational receipts, or user conversation data.
   writer ownership, evidence, and verified checkpoint gates.
 - The experimental denial extension records an operator-attested rejection before
   execution. A separate exact-scope approval is required for bookkeeping closure.
+- The reviewed quarantine helper can terminate an exactly approved legacy uncertain
+  attempt while retaining its unknown outcome and permanently blocking that post.
+  It requires independent authentic-source review and a new verified checkpoint.
 - The companion role queue is staging-only. Publisher, spreader, and commenter
   prepare independently while a serial coordinator gates writes and checkpoints.
 - Reviewed staging integration includes a restricted in-process ledger adapter,
@@ -59,6 +62,7 @@ authorized adapters; setting variables alone does not enable one.
 
 - `ledger.py`: strict SQLite ledger and JSON CLI
 - `denial_extension.py`: narrowly bound pre-execution denial bookkeeping
+- `quarantine_extension.py`: exact-scope uncertainty closure and permanent post exclusion
 - `package_recovery.py`, `checkpoint.py`: local allowlisted archive creation and
   verification; neither uploads data
 - `queue_core.py`: staging queue, pinned identities, immutable role jobs and slots
@@ -75,7 +79,7 @@ authorized adapters; setting variables alone does not enable one.
 - `test_*.py`: synthetic regression and adversarial tests
 
 Read [RECOVERY.md](RECOVERY.md), [CHECKPOINT.md](CHECKPOINT.md), and
-[FAIL_FAST.md](FAIL_FAST.md) before changing safety-critical behavior. The
+[FAIL_FAST.md](FAIL_FAST.md), and [QUARANTINE.md](QUARANTINE.md) before changing safety-critical behavior. The
 [staging checklist](STAGING.md) describes the remaining integration gates.
 The [integration contract](INTEGRATION.md) explains the new staged components and
 their deliberate limitations.
